@@ -1,11 +1,18 @@
+'''
+Attack XOR Ciphers
+'''
+
 import math
-from typing import IO
+import itertools
+from typing import IO, List
 from multiprocessing import Pool, shared_memory
 
 from rich.progress import Progress
 
-
 from cryptsmash.utils import read_blks
+
+def xor(data:bytes, key:bytes):
+    return bytes(d ^ k for d, k in zip(data, itertools.cycle(key)))
 
 def key_in_nulls(f:IO, size:int, suspect_key_len:int=0, block_size=4096, num_cores=None, verbose=True):
     '''
@@ -50,8 +57,27 @@ def key_in_nulls(f:IO, size:int, suspect_key_len:int=0, block_size=4096, num_cor
     return list(possible_keys)
 
 
+def file_header_key_extract(f:IO, headers:List[bytes], num_cores=None, verbose=True):
+    block_size=2048
+    cipher_text = f.read(block_size)
+
+    maybe_keys = list()
+    for header in headers:
+        key_block = xor(header, cipher_text)
+
+    maybe_keys.append(lrs(key_block))
+
+    maybe_keys = [repeats(k) for k in maybe_keys]
+    maybe_keys = [rotations(k) for k in maybe_keys if k]
+
+    # unflatten the nested list
+    return list(itertools.chain(*maybe_keys))
+
 # stole from https://medium.com/datascienceray/longest-repeated-substring-a6bb7722d73c
 def lrs(data:bytes, progress=None, task_id=None):
+    '''
+    Longest Repeated Substring
+    '''
     data_size=len(data)
 
     suffix = list()

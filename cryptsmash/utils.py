@@ -1,8 +1,13 @@
 import multiprocessing
 from typing import Callable, Iterable, Tuple, List, Any, IO
 from concurrent.futures import ProcessPoolExecutor
+import pkgutil
+import os
 
 from rich import progress
+
+def data_dir():
+    return os.path.join(os.path.dirname(pkgutil.get_loader('cryptsmash').path), 'data')
 
 def read_blks(f:IO, block_size):
     data = f.read(block_size)
@@ -10,7 +15,6 @@ def read_blks(f:IO, block_size):
         yield data
         data = f.read(block_size)
 
-import IPython
 def rich_map(func:Callable, args:Iterable[Tuple], total=None, num_cores=None, job_title=None) -> List[Any]:
     '''
     Map a function against several sets of arguments while also printing rich progress bars. Similar to Pool.map
@@ -23,7 +27,6 @@ def rich_map(func:Callable, args:Iterable[Tuple], total=None, num_cores=None, jo
     :param num_cores: Number of cores/workers to map with. Set to None for all the cpus on the machine
     :returns: List of each return value
     '''
-    # IPython.embed()
     with progress.Progress(
         "[progress.description]{task.description}",
         progress.BarColumn(),

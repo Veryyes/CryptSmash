@@ -15,5 +15,8 @@ setup(
     ],
     entry_points = {
         'console_scripts': ['smash = cryptsmash.run:main']
+    },
+    package_data={
+        'cryptsmash': ['data/*']
     }
 )

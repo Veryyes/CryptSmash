@@ -1,11 +1,13 @@
 from pathlib import Path
 import io
+import os
 
 import typer
 from rich import print
 from rich.progress import Progress
 from rich.console import Console
 
+from cryptsmash.utils import data_dir
 from cryptsmash.xor import *
 
 app = typer.Typer()
@@ -38,11 +40,25 @@ def xor(p: Path):
         size = f_size(f)
 
         console.log("[bold green]Looking for XOR key in Plaintext NULL bytes")
-        found_keys = set(key_in_nulls(f, size=size))
-        console.log(f"Found {len(found_keys)} Candidate Keys")
-        candidate_keys |= found_keys
+        f.seek(0)
+        candidate_keys |= set(key_in_nulls(f, size=size))
+        console.log(f"Found {len(candidate_keys)} Total Candidate Keys")
+
+        console.log("[bold green]XORing against File Headers")
+        f.seek(0)
+        headers = list()
+        example_dir = os.path.join(data_dir(), "example_files")
+        for filename in os.listdir(example_dir):
+            filepath = os.path.join(example_dir, filename)
+            with open(filepath, 'rb') as example_f:
+                headers.append(example_f.read(2048))
+        candidate_keys |= set(file_header_key_extract(f, headers))
+        console.log(f"Found {len(candidate_keys)} Total Candidate Keys")
 
         
+
+        console.log(f"Found {len(candidate_keys)} Number Of Keys.")
+        print(sorted(candidate_keys, key=lambda x:len(x)))
 
 
 def main():
