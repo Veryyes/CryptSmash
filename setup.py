@@ -11,7 +11,10 @@ setup(
     packages=["cryptsmash"],
     install_requires=[
         'rich',
-        'typer'
+        'typer',
+        'numpy',
+        'seaborn',
+        'pandas'
     ],
     entry_points = {
         'console_scripts': ['smash = cryptsmash.run:main']

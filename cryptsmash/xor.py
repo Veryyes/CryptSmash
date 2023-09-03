@@ -1,15 +1,17 @@
 '''
 Attack XOR Ciphers
+Based on Known Plaintext Attacks and Statisical Properties of Plaintext
 '''
 
 import math
 import itertools
-from typing import IO, List
+from typing import IO, List, Dict
 from multiprocessing import Pool, shared_memory
 
 from rich.progress import Progress
+import numpy as np
 
-from cryptsmash.utils import read_blks
+from cryptsmash.utils import read_blks, rich_map
 
 def xor(data:bytes, key:bytes):
     return bytes(d ^ k for d, k in zip(data, itertools.cycle(key)))
@@ -19,9 +21,10 @@ def key_in_nulls(f:IO, size:int, suspect_key_len:int=0, block_size=4096, num_cor
     Look for repeated bytes where NULL bytes could have been in the plaintext
     :param f: the IO stream to the file to attack
     :param size: the length of the file in bytes
-    :oaram suspect_key_len: The suspected key length. Leave as 0 if unknown
+    :param suspect_key_len: The suspected key length. Leave as 0 if unknown
     :param block_size: the number of bytes to process at a single time
     :param num_cores: number of cores to run with. Leave at 0 for all cores
+    :returns: Potential Keys
     '''
     total=math.ceil(size/block_size)
     with Pool() as p:
@@ -57,7 +60,12 @@ def key_in_nulls(f:IO, size:int, suspect_key_len:int=0, block_size=4096, num_cor
     return list(possible_keys)
 
 
-def file_header_key_extract(f:IO, headers:List[bytes], num_cores=None, verbose=True):
+def file_header_key_extract(f:IO, headers:List[bytes]):
+    '''
+    Attempts XOR against several file headers hoping the headers are the known plaintext in the case where a whole file is XOR encrypted
+    :param f: the IO stream to the file to attack
+    :returns: Potential Keys
+    '''
     block_size=2048
     cipher_text = f.read(block_size)
 
@@ -72,6 +80,90 @@ def file_header_key_extract(f:IO, headers:List[bytes], num_cores=None, verbose=T
 
     # unflatten the nested list
     return list(itertools.chain(*maybe_keys))
+
+def _stat_attack_helper(data:bytes, key_length:int, byte_distro:Dict[int,float], progress=None, task_id=None):
+    total = len(data) + key_length + key_length*256*256
+    cur = 0
+
+    frequencies = np.zeros((key_length, 256))
+    sum_sqrs = np.sum(np.square(list(byte_distro.values())))
+
+    # Grab the frequency of bytes for each position in the cipher text where
+    # the same index of the key is xor'd against
+    for i in range(len(data)):
+        b = data[i]
+        frequencies[i%key_length][b] += 1
+        
+        if progress is not None and i%512==0:
+            cur += 512
+            progress[task_id] = {"progress": cur, "total": total}
+
+    if progress is not None:
+        cur = len(data)
+        progress[task_id] = {"progress": cur, "total": total}
+
+    # Normalize the frequency table to a prob distribution
+    for i in range(key_length):
+        stream_count = np.sum(frequencies[i])
+        frequencies[i] = frequencies[i]/stream_count
+
+    if progress is not None:
+        cur += key_length
+        progress[task_id] = {"progress":cur, "total": total}
+
+    # For byte in the key, we will try to find the value that matches up against
+    # the closest to the sum squared value of that byte in the byte_distro
+    key = list()
+    for i in range(key_length):
+        best_cost = 10**9
+        best = b'\x00'
+
+        for test in range(256):
+            total = 0
+            for b in range(256):
+                total += byte_distro[b] + frequencies[i][(b ^ test)]
+
+
+            cost = abs(total - sum_sqrs)
+            if cost < best_cost:
+                best_cost = cost
+                best = test
+
+            if progress is not None:
+                cur += 256
+                progress[task_id] = {"progress": cur, "total": total}
+
+        key.append(best)
+
+    # Byte order doesn't matter here
+    return b''.join([int.to_bytes(k, length=1, byteorder='little') for k in key])
+
+def known_plaintext_statistical_attack(f:IO, byte_distro:Dict[int,float], suspect_key_len=0, max_key_len=32, num_cores=None, verbose=True):
+    '''
+    Attempt to extract the key based on knowning the underlying distribution of the bytes of the plain text. This is the same as breaking a vigenere cipher, but with bytes
+    
+    '''
+    data = f.read()   
+    keys = list()
+
+    min_key_len = 1
+    
+    if suspect_key_len > 0:
+        min_key_len = suspect_key_len
+        max_key_len = suspect_key_len+1
+
+    # Multiprocess against each possible key length we guess
+    for key in rich_map(
+        _stat_attack_helper, 
+        ((data, key_len, byte_distro) for key_len in range(min_key_len, max_key_len)), 
+        total=max_key_len-min_key_len,
+        job_title="Statistical Vigenere Attack"
+    ):
+        
+        keys.append(key)
+
+    return keys
+    
 
 # stole from https://medium.com/datascienceray/longest-repeated-substring-a6bb7722d73c
 def lrs(data:bytes, progress=None, task_id=None):
