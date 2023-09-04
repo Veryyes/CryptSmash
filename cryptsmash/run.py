@@ -1,6 +1,7 @@
 from pathlib import Path
 import os
 import json
+from typing import Union, IO
 
 import typer
 from typing_extensions import Annotated
@@ -71,45 +72,107 @@ def stats(
 
 
 @app.command()
-def xor(p: Path):
+def xor(
+    p:Annotated[Path, typer.Argument(help="File Path to the XOR Encrypted File")],
+    decrypt=False,
+    verbose:Annotated[bool, typer.Option()]=True
+):
+    _xor(p, decrypt=decrypt, verbose=verbose)
+
+def _xor(p: Union[Path, IO], decrypt=False, verbose=False):
     input_file_checks(p)
 
     candidate_keys = set()
 
-    with open(p, 'rb') as f:
-        size = f_size(f)
+    if isinstance(p, Path):
+        f = open(p, 'rb')
+    else:
+        f = p
 
+    size = f_size(f)
+
+    ##################
+    # Guess Key Size #
+    ##################
+    if verbose:
+        console.log("[bold green] Calculating Possible Key Lengths")
+    top_keys_lens = detect_key_length(f, max_key_len=64, n=None, verbose=verbose)
+
+    if verbose:    
+        table = Table(title=f"Top 10 Most Probably Key Lengths")
+        table.add_column("Key Length")
+        table.add_column("Probability")
+        for key_len, prob in top_keys_lens[:10]:
+            table.add_row(str(key_len), "{:.2f}%".format(prob*100))
+        print(table)
+
+    ####################
+    # Check NULL Bytes #
+    ####################
+    if verbose:
         console.log("[bold green]Looking for XOR key in Plaintext NULL bytes")
-        f.seek(0)
-        candidate_keys |= set(key_in_nulls(f, size=size))
+    f.seek(0)
+    candidate_keys |= set(key_in_nulls(f, size=size, verbose=verbose))
+    if verbose:
         console.log(f"Found {len(candidate_keys)} Total Candidate Keys")
 
+    ##########################################
+    # Try File Headers as Partial Plain Text #
+    ##########################################
+    if verbose:
         console.log("[bold green]XORing against File Headers")
-        f.seek(0)
-        headers = list()
-        example_dir = os.path.join(data_dir(), "example_files")
-        for filename in os.listdir(example_dir):
-            filepath = os.path.join(example_dir, filename)
-            with open(filepath, 'rb') as example_f:
-                headers.append(example_f.read(2048))
-        candidate_keys |= set(file_header_key_extract(f, headers))
+    f.seek(0)
+    headers = list()
+    example_dir = os.path.join(data_dir(), "example_files")
+    for filename in os.listdir(example_dir):
+        filepath = os.path.join(example_dir, filename)
+        with open(filepath, 'rb') as example_f:
+            headers.append(example_f.read(2048))
+    candidate_keys |= set(file_header_key_extract(f, headers))
+    if verbose:
         console.log(f"Found {len(candidate_keys)} Total Candidate Keys")
 
+    ###################################
+    # Language Frequency Based Attack #
+    ###################################
+    if verbose:
         console.log("[bold green]Statistical attack against English")
-        f.seek(0)
-        with open(os.path.join(data_dir(), "english_stats.json"), 'r') as sf:
-            byte_distro = json.load(sf)
-            # Nuance with Loading a Dict with Int as Keys
-            for i in range(256):
-                byte_distro[i] = byte_distro[str(i)]
-                del byte_distro[str(i)]
-            
-            candidate_keys |= set(known_plaintext_statistical_attack(f, byte_distro))
+    f.seek(0)
+    with open(os.path.join(data_dir(), "english_stats.json"), 'r') as sf:
+        byte_distro = json.load(sf)
+        # Nuance with Loading a Dict with Int as Keys
+        for i in range(256):
+            byte_distro[i] = byte_distro[str(i)]
+            del byte_distro[str(i)]
+        
+        candidate_keys |= set(known_plaintext_statistical_attack(f, byte_distro))
+    if verbose:
         console.log(f"Found {len(candidate_keys)} Total Candidate Keys")
 
-        console.log(f"Found {len(candidate_keys)} Number Of Keys.")
-        print(sorted(candidate_keys, key=lambda x:len(x)))
+    ##########################################
+    # Rank Keys Based on Candidate Key Sizes #
+    ##########################################
+    key_weights = dict(top_keys_lens)
+    ranked_keys = list()
+    for key in candidate_keys:
+        if len(key) in key_weights:
+            ranked_keys.append((key, key_weights[len(key)]))
 
+    ranked_keys = sorted(ranked_keys, key=lambda x:x[1], reverse=True)
+    # if verbose:
+    #     table = Table(title="Title Candidate Keys")
+    #     table.add_column("Key (Bytes)")
+    #     table.add_column("Score")
+    #     for key, score in ranked_keys:
+    #         table.add_row(repr(key), "{:2f}".format(score))
+    #     print(table)
+
+    if not decrypt:
+        return
+
+    #############################################
+    # Attempt Decryption with all Keys and Rank #
+    #############################################
 
 def main():
     app()

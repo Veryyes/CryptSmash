@@ -2,19 +2,129 @@
 Attack XOR Ciphers
 Based on Known Plaintext Attacks and Statisical Properties of Plaintext
 '''
-
+import time
 import math
 import itertools
 from typing import IO, List, Dict
+from collections import defaultdict
 from multiprocessing import Pool, shared_memory
 
 from rich.progress import Progress
 import numpy as np
 
+from matplotlib.pyplot import scatter
+import matplotlib.pyplot as plt
+
+
 from cryptsmash.utils import read_blks, rich_map
 
 def xor(data:bytes, key:bytes):
     return bytes(d ^ k for d, k in zip(data, itertools.cycle(key)))
+
+# def polyalphabetic_keylen_detection(f:IO, num_cores=None, max_key_len=32):
+#     start = time.time()
+#     data = f.read()
+#     min_key_len = 1    
+
+#     periods = list()
+#     for key_len in range(min_key_len, max_key_len):
+#         freq = defaultdict(lambda: defaultdict(lambda: 0))
+#         for i, b in enumerate(data):
+#             i = i % key_len
+#             freq[i][b] += 1
+
+#         iocs = list()
+#         for i in range(key_len):
+#             numerator = 0
+#             denominiator = len(data) * (len(data) - 1)
+#             for count in freq[i].values():
+#                 numerator += (count * (count - 1))
+
+#             iocs.append(numerator/denominiator)
+
+#         periods.append(np.average(np.array(iocs)))
+
+#     print(time.time() - start)
+#     print(np.argmax(periods)+1)
+#     scatter(x=list(range(len(periods))), y=periods)
+#     scatter(x=[np.argmax(periods)], y=max(periods), marker='^')
+#     plt.show()
+
+def _coincidence_score(data, key_len, max_key_len, progress=None, task_id=None):
+    cur = 0
+    total = len(data) + key_len
+
+    freq = defaultdict(lambda: defaultdict(lambda: 0))
+    for i, b in enumerate(data):
+        key_idx = i % key_len
+        freq[key_idx][b] += 1
+
+        if progress is not None and i%2048 == 0:
+            cur += 2048
+            progress[task_id] = {'progress': min(cur, len(data)), 'total':total}
+
+    if progress is not None:
+        cur = len(data)
+        progress[task_id] = {'progress': cur, 'total':total}
+        
+    score = 0
+    for i in range(key_len):
+        score += max(freq[i].values()) - 1
+    
+    score = score / (max_key_len + key_len**1.5)
+
+    if progress is not None:
+        progress[task_id] = {'progress': total, 'total':total}
+
+    return score
+
+
+def detect_key_length(f:IO, num_cores=None, max_key_len=32, n:int=10, verbose=True):
+    '''
+    Detect Key Length by measuring the number of coincidences for each possible key length
+    Then looking at local maximum -> Should expect peaks at multiples of the key size
+    Based on xortool's key length detection
+    '''
+    data = f.read()
+    max_key_len += 1
+    min_key_len = 1
+
+    if max_key_len - min_key_len == 1:
+        return (1, 1) 
+
+    maximums = list()
+
+    scores = rich_map(
+        _coincidence_score, 
+        ((data, key_len, max_key_len) for key_len in range(min_key_len, max_key_len)), 
+        total=max_key_len - min_key_len,
+        job_title="Scoring Possible Key Sizes",
+        disabled=not verbose
+    )
+
+    for i in range(1, len(scores)):
+        # Next index goes over
+        if i+1 == len(scores):
+            if scores[i-1] < scores[i]:
+                maximums.append((i+1, scores[i]))
+        else:
+            if scores[i-1] < scores[i] and scores[i] > scores[i+1]:
+                maximums.append((i+1, scores[i]))
+
+    # Normalize 
+    total = sum((x[1] for x in maximums))
+    for i in range(len(maximums)):
+        key_len, score = maximums[i]
+        maximums[i] = (key_len, score/total)
+
+    if n is None:
+        return sorted(maximums, key=lambda x:x[1], reverse=True)
+
+    return sorted(maximums, key=lambda x:x[1], reverse=True)[:n]
+
+    # scatter(x=list(range(min_key_len, max_key_len)), y=s)
+    # plt.show()
+    
 
 def key_in_nulls(f:IO, size:int, suspect_key_len:int=0, block_size=4096, num_cores=None, verbose=True):
     '''
@@ -138,7 +248,14 @@ def _stat_attack_helper(data:bytes, key_length:int, byte_distro:Dict[int,float],
     # Byte order doesn't matter here
     return b''.join([int.to_bytes(k, length=1, byteorder='little') for k in key])
 
-def known_plaintext_statistical_attack(f:IO, byte_distro:Dict[int,float], suspect_key_len=0, max_key_len=32, num_cores=None, verbose=True):
+def known_plaintext_statistical_attack(
+    f:IO, 
+    byte_distro:Dict[int,float], 
+    suspect_key_len=0, 
+    max_key_len=32, 
+    num_cores=None, 
+    verbose=True
+):
     '''
     Attempt to extract the key based on knowning the underlying distribution of the bytes of the plain text. This is the same as breaking a vigenere cipher, but with bytes
     
@@ -146,6 +263,7 @@ def known_plaintext_statistical_attack(f:IO, byte_distro:Dict[int,float], suspec
     data = f.read()   
     keys = list()
 
+    max_key_len += 1
     min_key_len = 1
     
     if suspect_key_len > 0:
@@ -157,7 +275,8 @@ def known_plaintext_statistical_attack(f:IO, byte_distro:Dict[int,float], suspec
         _stat_attack_helper, 
         ((data, key_len, byte_distro) for key_len in range(min_key_len, max_key_len)), 
         total=max_key_len-min_key_len,
-        job_title="Statistical Vigenere Attack"
+        job_title="Statistical Vigenere-style Attack",
+        disabled=not verbose
     ):
         
         keys.append(key)

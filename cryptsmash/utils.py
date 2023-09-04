@@ -8,6 +8,17 @@ import io
 import numpy as np
 from rich import progress
 
+class ProgressCompletion:
+    def __init__(self, total:int):
+        self.cur = 0
+        self.total = total
+
+    def update(self, cur):
+        self.cur = cur
+
+    def inc(self, value):
+        self.cur += value
+
 def data_dir():
     return os.path.join(os.path.dirname(pkgutil.get_loader('cryptsmash').path), 'data')
 
@@ -31,7 +42,7 @@ def byte_prob(f:IO):
     return np.bincount(np_data, minlength=256) / len(np_data)
     
 
-def rich_map(func:Callable, args:Iterable[Tuple], total=None, num_cores=None, job_title=None) -> List[Any]:
+def rich_map(func:Callable, args:Iterable[Tuple], total=None, num_cores=None, job_title=None, disabled=False) -> List[Any]:
     '''
     Map a function against several sets of arguments while also printing rich progress bars. Similar to Pool.map
     Functions passed in may use the optional keyword arguments: progress and task_id to update the worker's current progress.
@@ -50,6 +61,7 @@ def rich_map(func:Callable, args:Iterable[Tuple], total=None, num_cores=None, jo
         progress.TimeRemainingColumn(),
         progress.TimeElapsedColumn(),
         refresh_per_second=1,
+        disable=disabled
     ) as progress_bar:
         futures = []
         with multiprocessing.Manager() as manager:
@@ -68,8 +80,10 @@ def rich_map(func:Callable, args:Iterable[Tuple], total=None, num_cores=None, jo
                     progress_bar.update(
                         overall_progress_task,
                         completed=n_finished,
-                        total=len(futures)
+                        total=len(futures),
+                        visibl=not disabled
                     )
+
                     for task_id, update_data in _progress.items():
                         latest = update_data['progress']
                         total = update_data['total']
@@ -77,12 +91,14 @@ def rich_map(func:Callable, args:Iterable[Tuple], total=None, num_cores=None, jo
                             task_id,
                             completed=latest,
                             total=total,
-                            visible=latest < total
+                            visible=latest < total and (not disabled)
                         )
 
+                # Overall Progress Completed
                 progress_bar.update(
-                        overall_progress_task,
-                        completed=len(futures),
-                        total=len(futures)
-                    )
+                    overall_progress_task,
+                    completed=len(futures),
+                    total=len(futures),
+                    visible=not disabled
+                )
                 return [f.result() for f in futures]
