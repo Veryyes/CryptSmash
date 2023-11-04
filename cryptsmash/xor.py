@@ -5,7 +5,8 @@ Based on Known Plaintext Attacks and Statisical Properties of Plaintext
 import time
 import math
 import itertools
-from typing import IO, List, Dict
+import queue
+from typing import IO, List, Dict, Tuple
 from collections import defaultdict
 from multiprocessing import Pool, shared_memory
 
@@ -17,6 +18,7 @@ import matplotlib.pyplot as plt
 
 
 from cryptsmash.utils import read_blks, rich_map
+from cryptsmash.plaintext import fitness
 
 def xor(data:bytes, key:bytes):
     return bytes(d ^ k for d, k in zip(data, itertools.cycle(key)))
@@ -78,8 +80,27 @@ def _coincidence_score(data, key_len, max_key_len, progress=None, task_id=None):
 
     return score
 
+def _find_repeats(data:bytes):
+    '''
+    Returns a bytearray that repeats in data and starts at data[0]
+    '''
+    for i, char in enumerate(data):
+        prefix = data[:i+1]
+        if prefix not in data[i+2:]:
+            repeated = data[:-len(prefix) + 1]
+            if len(repeated) == 0:
+                return data
+            return repeated
 
-def detect_key_length(f:IO, num_cores=None, max_key_len=32, n:int=10, verbose=True):
+def _reduce_repeats(data:bytes):
+    '''Returns the smallest bytearray that repeats in data and starts at data[0]'''
+    prev = None
+    while prev != data:
+        prev = data
+        data = _find_repeats(data)
+    return data
+
+def detect_key_length(f:IO, num_cores=None, known_key_prefix=None, max_key_len=32, n:int=10, verbose=True):
     '''
     Detect Key Length by measuring the number of coincidences for each possible key length
     Then looking at local maximum -> Should expect peaks at multiples of the key size
@@ -87,7 +108,11 @@ def detect_key_length(f:IO, num_cores=None, max_key_len=32, n:int=10, verbose=Tr
     '''
     data = f.read()
     max_key_len += 1
-    min_key_len = 1
+    if known_key_prefix:
+        min_key_len = len(_reduce_repeats(known_key_prefix))
+        print(min_key_len)
+    else:
+        min_key_len = 1
 
     if max_key_len - min_key_len == 1:
         return (1, 1) 
@@ -101,6 +126,9 @@ def detect_key_length(f:IO, num_cores=None, max_key_len=32, n:int=10, verbose=Tr
         job_title="Scoring Possible Key Sizes",
         disabled=not verbose
     )
+
+    if scores[0] > scores[1]:
+        maximums.append((1, scores[0]))
 
     for i in range(1, len(scores)):
         # Next index goes over
@@ -124,9 +152,72 @@ def detect_key_length(f:IO, num_cores=None, max_key_len=32, n:int=10, verbose=Tr
 
     # scatter(x=list(range(min_key_len, max_key_len)), y=s)
     # plt.show()
-    
 
-def key_in_nulls(f:IO, size:int, suspect_key_len:int=0, block_size=4096, num_cores=None, verbose=True):
+
+def known_plaintext_prefix(
+    f:IO, 
+    known_prefix:bytes,
+    candidate_key_lens:List[Tuple[int, float]]
+) -> Tuple[bytes, bool]:
+    '''
+    Partial or Full Key recovery based on a known plaintext prefix
+    Usually in CTFs, the known_prefix is 'flag{'
+    :param f: the IO stream to the file to attack
+    :param known_prefix: The known first several bytes in the plaintext
+    :returns: If the boolean is True then the bytes are the key, Otherwise the bytes are the start of the key
+    '''
+    # We get partial/full key with by decrypting the first len(known_prefix) bytes
+    # If true key len <= len(known_prefix) -> Full Key Recovered
+    # if true key len > len(known_prefix) -> Partial Key Recovered
+    repeated_key = xor(f.read(len(known_prefix)), known_prefix)
+
+    # "reduce" out repeated keys
+    simplified_key = _reduce_repeats(repeated_key)
+
+    # The case where the key has repeated itself or started to repeat itself 
+    if len(repeated_key) > len(simplified_key):
+        return simplified_key, True
+
+    # The case where we have the partial key, or the entire key itself exactly
+    key_score_lookup = defaultdict(lambda: min(candidate_key_lens, key=lambda x:x[1])[1])
+    for key_len, score in candidate_key_lens:
+        key_score_lookup[key_len] = score
+
+    # Try to rebuild the plaintext and score guessed plaintexts
+    f.seek(0)
+    cipher_txt = f.read(2048)
+    keys = queue.PriorityQueue()
+    _, _, _, _, _, _, score = fitness(simplified_key, key_score_lookup[len(simplified_key)], cipher_txt, xor)
+    keys.put((-score, simplified_key))
+
+    run_for = 500
+
+    with Progress() as progress:
+        task = progress.add_task("Trying to intepolate partial key...", total=run_for)
+
+        for _ in range(run_for):
+            score, candidate_key = keys.get()
+            keys.put((score, candidate_key))
+            for char in range(255):
+                b = int.to_bytes(char, length=1, byteorder='little')
+                candidate_key += b
+                _, _, _, _, _, _, score = fitness(candidate_key, key_score_lookup[len(candidate_key)], cipher_txt, xor)
+                keys.put((-score, candidate_key))
+            progress.update(task, advance=1)
+
+    
+    _, best = keys.get()
+    return best, False
+
+
+def key_in_nulls(
+    f:IO, 
+    size:int, 
+    suspect_key_len:int=0, 
+    block_size=4096, 
+    num_cores=None, 
+    verbose=True
+):
     '''
     Look for repeated bytes where NULL bytes could have been in the plaintext
     :param f: the IO stream to the file to attack
@@ -137,7 +228,7 @@ def key_in_nulls(f:IO, size:int, suspect_key_len:int=0, block_size=4096, num_cor
     :returns: Potential Keys
     '''
     total=math.ceil(size/block_size)
-    with Pool() as p:
+    with Pool(num_cores) as p:
         with Progress(disable=not verbose) as progress:
             task_id = progress.add_task("Longest Repeated Substring of Bytes", total=total)
             
@@ -191,7 +282,12 @@ def file_header_key_extract(f:IO, headers:List[bytes]):
     # unflatten the nested list
     return list(itertools.chain(*maybe_keys))
 
-def _stat_attack_helper(data:bytes, key_length:int, byte_distro:Dict[int,float], progress=None, task_id=None):
+def _stat_attack_helper(
+    data:bytes, 
+    key_length:int, 
+    byte_distro:Dict[int,float], 
+    progress=None, task_id=None
+):
     total = len(data) + key_length + key_length*256*256
     cur = 0
 
@@ -300,7 +396,7 @@ def lrs(data:bytes, progress=None, task_id=None):
             progress[task_id] = {"progress": i, "total": data_size*2}
     suffix = sorted(suffix)
     
-    lrs=""
+    lrs=b""
     length=0
     for i in range(data_size-1):
         length = lcp(suffix[i], suffix[i+1], len(lrs))

@@ -14,7 +14,8 @@ setup(
         'typer',
         'numpy',
         'seaborn',
-        'pandas'
+        'pandas',
+        'magic'
     ],
     entry_points = {
         'console_scripts': ['smash = cryptsmash.run:main']

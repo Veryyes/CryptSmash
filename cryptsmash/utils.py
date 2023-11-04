@@ -1,23 +1,14 @@
 import multiprocessing
-from typing import Callable, Iterable, Tuple, List, Any, IO
+from typing import Callable, Iterable, Tuple, Dict, List, Set, Any, IO
+from collections import defaultdict
 from concurrent.futures import ProcessPoolExecutor
 import pkgutil
 import os
 import io
+import math
 
 import numpy as np
 from rich import progress
-
-class ProgressCompletion:
-    def __init__(self, total:int):
-        self.cur = 0
-        self.total = total
-
-    def update(self, cur):
-        self.cur = cur
-
-    def inc(self, value):
-        self.cur += value
 
 def data_dir():
     return os.path.join(os.path.dirname(pkgutil.get_loader('cryptsmash').path), 'data')
@@ -41,6 +32,67 @@ def byte_prob(f:IO):
     np_data = np.frombuffer(data, dtype=np.uint8)
     return np.bincount(np_data, minlength=256) / len(np_data)
     
+def frequency_table(
+    data:bytes, 
+    alphabet:Set[bytes]=set([int.to_bytes(x, length=1, byteorder='little') for x in range(256)])
+) -> Dict[bytes, int]:
+
+    freq = defaultdict(lambda: 0)
+
+    for d in data:
+        # TODO d into bytes
+        freq[d] += 1
+
+    return freq
+
+#http://practicalcryptography.com/cryptanalysis/text-characterisation/chi-squared-statistic/
+def chi_squared(
+    counts:Dict[bytes, int], 
+    distrib:Dict[bytes, float], 
+    length:str, 
+    alphabet:Set[bytes]=set([int.to_bytes(x, length=1, byteorder='little') for x in range(256)])
+) -> float:
+    '''
+    The Chi-squared Statistic is a measure of how similar two categorical probability distributions are. 
+    If the two distributions are identical, the chi-squared statistic is 0, 
+    if the distributions are very different, some higher number will result
+
+    :param counts: frequency table (counts) of the data
+    :param distrib: distribution of symbols to compare against (sum to 1)
+    :param length: length of cipher text
+    '''
+    assert length > 0
+
+    max_factor = max(distrib.values()) ** 2
+    
+    assert max_factor > 0, "Everything in the distribution is 0!"
+
+    running_sum = 0.0
+    for letter in alphabet:
+        if distrib[letter] == 0:
+            running_sum += (math.pow(counts[letter] - (max_factor*length), 2) / (max_factor*length))
+        else:
+            running_sum += (math.pow(counts[letter] - (distrib[letter]*length), 2) / (distrib[letter]*length))
+
+    return running_sum/len(alphabet)
+
+# http://practicalcryptography.com/cryptanalysis/text-characterisation/index-coincidence/
+@staticmethod
+def index_of_coincidence(
+    data:bytes, 
+    alphabet:Set[bytes]=set([int.to_bytes(x, length=1, byteorder='little') for x in range(256)])
+) -> float:
+    '''
+    measure of how similar a frequency distribution is to the uniform distribution
+    '''
+    denominiator = len(data) * (len(data) - 1)
+    numerator = 0
+    frequency = frequency_table(data, alphabet)
+    for count in frequency.values():
+        numerator += (count * (count - 1))
+    
+    return numerator / denominiator
+
 
 def rich_map(func:Callable, args:Iterable[Tuple], total=None, num_cores=None, job_title=None, disabled=False) -> List[Any]:
     '''
