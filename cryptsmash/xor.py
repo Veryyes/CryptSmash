@@ -2,23 +2,24 @@
 Attack XOR Ciphers
 Based on Known Plaintext Attacks and Statisical Properties of Plaintext
 '''
-import time
+import os
+import json
 import math
 import itertools
 import queue
 from typing import IO, List, Dict, Tuple
 from collections import defaultdict
-from multiprocessing import Pool, shared_memory
+from multiprocessing import Pool
 
-from rich.progress import Progress
+from rich import print
+from rich.table import Table
+from rich.prompt import Prompt
+from rich import progress
 import numpy as np
 
-from matplotlib.pyplot import scatter
-import matplotlib.pyplot as plt
-
-
-from cryptsmash.utils import read_blks, rich_map
+from cryptsmash.utils import read_blks, rich_map, data_dir
 from cryptsmash.plaintext import fitness
+from cryptsmash.utils import f_size
 
 def xor(data:bytes, key:bytes):
     return bytes(d ^ k for d, k in zip(data, itertools.cycle(key)))
@@ -100,7 +101,7 @@ def _reduce_repeats(data:bytes):
         data = _find_repeats(data)
     return data
 
-def detect_key_length(f:IO, num_cores=None, known_key_prefix=None, max_key_len=32, n:int=10, verbose=True):
+def detect_key_length(f:IO, num_cores=None, max_key_len=32, n:int=10, verbose=True):
     '''
     Detect Key Length by measuring the number of coincidences for each possible key length
     Then looking at local maximum -> Should expect peaks at multiples of the key size
@@ -108,11 +109,7 @@ def detect_key_length(f:IO, num_cores=None, known_key_prefix=None, max_key_len=3
     '''
     data = f.read()
     max_key_len += 1
-    if known_key_prefix:
-        min_key_len = len(_reduce_repeats(known_key_prefix))
-        print(min_key_len)
-    else:
-        min_key_len = 1
+    min_key_len = 1
 
     if max_key_len - min_key_len == 1:
         return (1, 1) 
@@ -157,7 +154,8 @@ def detect_key_length(f:IO, num_cores=None, known_key_prefix=None, max_key_len=3
 def known_plaintext_prefix(
     f:IO, 
     known_prefix:bytes,
-    candidate_key_lens:List[Tuple[int, float]]
+    candidate_key_lens:List[Tuple[int, float]],
+    key_max_length:int=64
 ) -> Tuple[bytes, bool]:
     '''
     Partial or Full Key recovery based on a known plaintext prefix
@@ -190,22 +188,38 @@ def known_plaintext_prefix(
     _, _, _, _, _, _, score = fitness(simplified_key, key_score_lookup[len(simplified_key)], cipher_txt, xor)
     keys.put((-score, simplified_key))
 
-    run_for = 500
+    run_for = 200
 
-    with Progress() as progress:
-        task = progress.add_task("Trying to intepolate partial key...", total=run_for)
-
+    explored = []
+    with progress.Progress() as progress_bar:
+        task = progress_bar.add_task("Trying to intepolate partial key...", total=run_for)
         for _ in range(run_for):
-            score, candidate_key = keys.get()
-            keys.put((score, candidate_key))
+            explore_key = False
+            while not explore_key:
+                if keys.empty():
+                    break
+
+                score, candidate_key = keys.get()
+                explored.append((score, candidate_key))
+
+                if len(candidate_key) <= key_max_length:
+                    explore_key = True        
+            if not explore_key:
+                progress_bar.update(task, completed=True)
+                break
+
             for char in range(255):
                 b = int.to_bytes(char, length=1, byteorder='little')
                 candidate_key += b
                 _, _, _, _, _, _, score = fitness(candidate_key, key_score_lookup[len(candidate_key)], cipher_txt, xor)
                 keys.put((-score, candidate_key))
-            progress.update(task, advance=1)
+            progress_bar.update(task, advance=1)
 
-    
+    # Place all the explored states back in the queue
+    # to select the best out of all possible states explored
+    for e in explored:
+        keys.put(e)
+
     _, best = keys.get()
     return best, False
 
@@ -229,14 +243,14 @@ def key_in_nulls(
     '''
     total=math.ceil(size/block_size)
     with Pool(num_cores) as p:
-        with Progress(disable=not verbose) as progress:
-            task_id = progress.add_task("Longest Repeated Substring of Bytes", total=total)
+        with progress.Progress(disable=not verbose) as progress_bar:
+            task_id = progress_bar.add_task("Longest Repeated Substring of Bytes", total=total)
             
             # Find the largest repeating substrings in blocks of data
             repeated_substrs = set()
             for substr in p.imap(lrs, read_blks(f, block_size)):
                 repeated_substrs.add(substr)
-                progress.advance(task_id)
+                progress_bar.advance(task_id)
         
         # If we have a suspected key length, keep strings that are greater than or equal to the (known) key length
         if suspect_key_len > 0:
@@ -447,3 +461,108 @@ def rotations(s):
     yield s
     for i in range(1, len(s)+1):
         yield s[-i:] + s[:-i]
+
+def xor_smash(f:IO, ptxt_prefix=None, verbose=False, console=None):
+
+    # If the first few bytes of the plaintext are known,
+    # calculate the part of the key corresponding to the known bytes
+    f.seek(0)
+    key_prefix = None
+    if ptxt_prefix:
+        ptxt_prefix = bytes(ptxt_prefix, 'ascii')
+        key_prefix = xor(f.read(len(ptxt_prefix)), ptxt_prefix)
+        f.seek(0)
+
+    # Score possible Key Sizes
+    if verbose:
+        console.log("[bold green]Calculating Possible Key Lengths")
+    key_lens = detect_key_length(f, max_key_len=64, n=None, verbose=verbose)
+    if verbose:    
+        table = Table(title=f"Top 10 Most Probably Key Lengths")
+        table.add_column("Key Length")
+        table.add_column("Probability")
+        for key_len, prob in key_lens[:10]:
+            table.add_row(str(key_len), "{:.2f}%".format(prob*100))
+        print(table)
+
+    # Greedy Search using the Known Plaintext as a seed state
+    candidate_key = None
+    if ptxt_prefix:
+        f.seek(0)
+        candidate_key, full_recovery = known_plaintext_prefix(f, ptxt_prefix, key_lens)
+        if full_recovery:
+            full_key = candidate_key
+            keep_going = Prompt.ask(f"Found Key \"{full_key}\", Continue Analysis? (y/n)", choices=['y', 'n'], default='y')
+            if keep_going == 'n':
+                console.log(key_prefix)
+                return
+        else:
+            partial_key = candidate_key
+            print(f"Found Partial Key: {partial_key}")
+    
+    # Create a set of all possible bytearrays we think could be keys
+    f.seek(0)
+    ptxt_len = f_size(f)
+    candidate_keys = set()
+    if candidate_key:
+        candidate_keys.add(candidate_key)
+
+    ###################
+    # All 1 Byte Keys #
+    ###################
+    if verbose:
+        console.log("[bold green]Brute forcing all 1 Byte keys")
+    candidate_keys |= set([int.to_bytes(x, length=1, byteorder='little') for x in range(255)])
+
+    ####################
+    # Check NULL Bytes #
+    ####################
+    if verbose:
+        console.log("[bold green]Looking for XOR key in Plaintext NULL bytes")
+
+    f.seek(0)
+    candidate_keys |= set(key_in_nulls(f, size=ptxt_len, verbose=verbose))
+    
+    ##########################################
+    # Try File Headers as Partial Plain Text #
+    ##########################################
+    if verbose:
+        console.log("[bold green]Known Plaintext Attack w/ Known File Headers")
+    f.seek(0)
+    headers = list()
+    example_dir = os.path.join(data_dir(), "example_files")
+    for filename in os.listdir(example_dir):
+        filepath = os.path.join(example_dir, filename)
+        with open(filepath, 'rb') as example_f:
+            headers.append(example_f.read(2048))
+    candidate_keys |= set(file_header_key_extract(f, headers))
+    
+    ###################################
+    # Language Frequency Based Attack #
+    ###################################
+    if verbose:
+        console.log("[bold green]Statistical attack against English")
+    f.seek(0)
+    with open(os.path.join(data_dir(), "english_stats.json"), 'r') as sf:
+        byte_distro = json.load(sf)
+        # Nuance with Loading a Dict with Int as Keys
+        for i in range(256):
+            byte_distro[i] = byte_distro[str(i)]
+            del byte_distro[str(i)]
+        
+        candidate_keys |= set(known_plaintext_statistical_attack(f, byte_distro))
+
+    ##########################################
+    # Rank Keys Based on Candidate Key Sizes #
+    ##########################################
+    key_weights = dict(key_lens)
+    ranked_keys = list()
+    for key in candidate_keys:
+        if len(key) in key_weights:
+            ranked_keys.append((key, key_weights[len(key)]))
+
+    return sorted(ranked_keys, key=lambda x:x[1], reverse=True), key_prefix
+
+def xor_fitness(args):
+    key, key_score, c_txt = args
+    return fitness(key, key_score, c_txt, xor)

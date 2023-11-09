@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import Type, Tuple
+from typing import Type, Tuple, Callable
 import os
 import json
 from math import log10
