@@ -1,0 +1,9 @@
+from cryptsmash.baconian import encrypt, decrypt
+
+p = "didyouknowbungeegumhasboththepropertiesofrubberandgum"
+
+def test_bacon_enc():
+    assert encrypt(p) == "AAABBABAAAAAABBBABBAABBABBAABBABAABABBAAABBABBABAAAAAABBAABBABBAAAABBAAABAAAABAAAABBABAABBABABBAABBBAAAAABAAABAAAABABBABBAABAAABBBBAABAAABBBAABAAABBBABAAAAABBABABBBAAABAABAAAABAABAABAAAAABAABAAABABBABAABABBAAAABAABBAAAABAAAABAABAABAAAAAAAAAABBAAAAABBAABBABAABBABABB"
+
+def test_bacon_corr():
+    assert decrypt(encrypt(p)) == p.replace('i', 'j').replace('u', 'v')

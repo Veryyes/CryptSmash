@@ -15,8 +15,11 @@ setup(
         'numpy',
         'seaborn',
         'pandas',
-        'magic'
+        'python-magic'
     ],
+    extras_require = {
+        'dev': ['pytest']
+    },
     entry_points = {
         'console_scripts': ['smash = cryptsmash.run:main']
     },
