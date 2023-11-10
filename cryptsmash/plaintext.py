@@ -1,10 +1,15 @@
 from __future__ import annotations
-from typing import Type, Tuple, Callable
+from typing import Type, Tuple, Callable, Union, List
 import os
 import json
 from math import log10
+from multiprocessing import Pool
+from dataclasses import dataclass
 
 import magic
+from rich.progress import Progress
+from rich import print
+from rich.table import Table
 
 from cryptsmash.utils import data_dir, chi_squared, frequency_table
 #############################################
@@ -29,6 +34,81 @@ from cryptsmash.utils import data_dir, chi_squared, frequency_table
 #     eng_similiarity = chi_squared(frequency_table(decrypted_data))
 #     printable_percentage(decrypted_data)
 
+@dataclass
+class Score:
+    plain_text: Union[str, bytes]
+    key: Union[str, bytes]
+    file_type: str
+    eng_fitness: float
+    eng_similarity: float
+    printable_percent:float
+    score:float
+
+    def __lt__(self, other:Score):
+        return self.score < other.score
+
+
+class KeyScorer:
+    def __init__(self, cipher_text, decrypt_func:Callable):
+        self.cipher_text = cipher_text
+        self.decrypt_func = decrypt_func
+        self.scores:List[Score] = list()
+
+    def score(self, keys, key_scores, hook:Callable[[List[Score]]] = None):
+        assert len(keys) == len(key_scores)
+
+        with Pool() as p:
+            with Progress() as progress:
+                task_id = progress.add_task("Decrypting and Scoring...", total=len(keys))
+                for result in p.imap(fitness_multiproc, ((key, score, self.cipher_text, self.decrypt_func) for key, score in zip(keys, key_scores))):
+                    self.scores.append(result)
+                    progress.advance(task_id)
+
+        # Special Logic that might make more sense for a particular cipher
+        if hook is None:
+            hook = KeyScorer._default_hook
+        self.scores = hook(self.scores)
+
+        self.scores = sorted(self.scores, reverse=True)
+
+    def print(self, top_percent:int=25):
+        assert top_percent > 0 and top_percent <= 100
+        assert len(self.scores) > 0
+
+        table = Table(title="Plaintexts")
+        table.add_column("Plain Text")
+        table.add_column("Key")
+        table.add_column("File Type")
+        table.add_column("English Fitness Score")
+        table.add_column("English Similarity Score")
+        table.add_column("Printable Character %")
+        table.add_column("Overall Score")
+
+        # top_proportion = (100 - top_percent) / 100
+        top_percent = top_percent / 100
+        for i, score in enumerate(self.scores):
+            if i > len(self.scores) // top_percent:
+                break
+
+            table.add_row(
+                repr(score.plain_text[:24])[2:-1],
+                repr(score.key)[2:-1],
+                score.file_type[:16],
+                "{:.2f}".format(score.eng_fitness * 1000),
+                "{:.2f}".format(score.eng_similarity),
+                "{:.2f}%".format(score.printable_percent*100),
+                "{:.2f}".format(score.score)
+            )
+        print(table)
+
+
+    @staticmethod
+    def _default_hook(scores:List[Score]):
+        # Write a custom hook and pass it into scores to do extra modification
+        # to the scored key/plaintext combos that make sense for the specific cipher
+        return scores
+
+
 def fitness(key:bytes, key_score:float, cipher_text:bytes, decrypt:Callable[[bytes, bytes], bytes]):
     plain_txt = decrypt(cipher_text, key)
 
@@ -49,8 +129,11 @@ def fitness(key:bytes, key_score:float, cipher_text:bytes, decrypt:Callable[[byt
     score *= eng_fitness * eng_similiarity * printable_percent
     score = score**(1/5)
 
-    return (plain_txt, key, file_type, eng_fitness, eng_similiarity, printable_percent, score)
+    return Score(plain_txt, key, file_type, eng_fitness, eng_similiarity, printable_percent, score)
 
+def fitness_multiproc(args):
+    key, key_score, cipher_text, decrypt_func = args
+    return fitness(key, key_score, cipher_text, decrypt_func)
 
 def printable_percentage(data:bytes) -> float:
     '''
@@ -103,3 +186,4 @@ class English(Language):
     quadgram_total = sum(quadgrams.values())
     for key in quadgrams.keys():
         quadgrams[key] = log10(1 + (quadgrams[key] / quadgram_total))
+

@@ -147,9 +147,6 @@ def detect_key_length(f:IO, num_cores=None, max_key_len=32, n:int=10, verbose=Tr
 
     return sorted(maximums, key=lambda x:x[1], reverse=True)[:n]
 
-    # scatter(x=list(range(min_key_len, max_key_len)), y=s)
-    # plt.show()
-
 
 def known_plaintext_prefix(
     f:IO, 
@@ -185,10 +182,10 @@ def known_plaintext_prefix(
     f.seek(0)
     cipher_txt = f.read(2048)
     keys = queue.PriorityQueue()
-    _, _, _, _, _, _, score = fitness(simplified_key, key_score_lookup[len(simplified_key)], cipher_txt, xor)
-    keys.put((-score, simplified_key))
+    s = fitness(simplified_key, key_score_lookup[len(simplified_key)], cipher_txt, xor)
+    keys.put((-s.score, simplified_key))
 
-    run_for = 200
+    run_for = 500
 
     explored = []
     with progress.Progress() as progress_bar:
@@ -199,10 +196,10 @@ def known_plaintext_prefix(
                 if keys.empty():
                     break
 
-                score, candidate_key = keys.get()
-                explored.append((score, candidate_key))
+                score, base_key = keys.get()
+                explored.append((score, base_key))
 
-                if len(candidate_key) <= key_max_length:
+                if len(base_key) <= key_max_length:
                     explore_key = True        
             if not explore_key:
                 progress_bar.update(task, completed=True)
@@ -210,9 +207,9 @@ def known_plaintext_prefix(
 
             for char in range(255):
                 b = int.to_bytes(char, length=1, byteorder='little')
-                candidate_key += b
-                _, _, _, _, _, _, score = fitness(candidate_key, key_score_lookup[len(candidate_key)], cipher_txt, xor)
-                keys.put((-score, candidate_key))
+                candidate_key = base_key + b
+                s = fitness(candidate_key, key_score_lookup[len(candidate_key)], cipher_txt, xor)
+                keys.put((-s.score, candidate_key))
             progress_bar.update(task, advance=1)
 
     # Place all the explored states back in the queue
@@ -556,13 +553,11 @@ def xor_smash(f:IO, ptxt_prefix=None, verbose=False, console=None):
     # Rank Keys Based on Candidate Key Sizes #
     ##########################################
     key_weights = dict(key_lens)
-    ranked_keys = list()
+    keys = list()
+    key_scores = list()
     for key in candidate_keys:
         if len(key) in key_weights:
-            ranked_keys.append((key, key_weights[len(key)]))
+            keys.append(key)
+            key_scores.append(key_weights[len(key)])
 
-    return sorted(ranked_keys, key=lambda x:x[1], reverse=True), key_prefix
-
-def xor_fitness(args):
-    key, key_score, c_txt = args
-    return fitness(key, key_score, c_txt, xor)
+    return keys, key_scores, key_prefix

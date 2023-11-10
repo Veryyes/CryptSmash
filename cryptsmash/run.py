@@ -1,11 +1,9 @@
 from pathlib import Path
 import json
-from multiprocessing import Pool
 
 import typer
 from typing_extensions import Annotated
 from rich import print
-from rich.progress import Progress
 from rich.console import Console
 from rich.table import Table
 import seaborn as sns
@@ -14,7 +12,9 @@ import pandas as pd
 
 from cryptsmash.utils import *
 from cryptsmash.plaintext import *
-from cryptsmash.xor import *
+from cryptsmash.xor import xor_smash
+from cryptsmash.xor import xor as xor_decrypt
+from cryptsmash import baconian
 
 
 app = typer.Typer()
@@ -70,6 +70,13 @@ def stats(
         sns.histplot(df, x='x', weights='w', bins=256)
         plt.show()
 
+# @app.command()
+# def bacon(
+#     p:Annotated[Path, typer.Argument(help="File Path to the Encrypted File")]
+# ):
+#     with open(p, 'r') as f:
+#         plain = baconian.decrypt(f.read())
+    
 
 @app.command()
 def xor(
@@ -79,7 +86,7 @@ def xor(
     verbose:Annotated[bool, typer.Option()]=True
 ):
     with open(p, 'rb') as f:
-        ranked_keys, key_prefix = xor_smash(f, known_prefix, verbose, console)
+        keys, key_scores, key_prefix = xor_smash(f, known_prefix, verbose, console)
 
         if not decrypt:
             return
@@ -87,51 +94,20 @@ def xor(
         f.seek(0)
         c_text = f.read()
 
-    #############################################
-    # Attempt Decryption with all Keys and Rank #
-    #############################################
-    table = Table(title="Plaintexts")
-    table.add_column("Plain Text")
-    table.add_column("Key")
-    table.add_column("File Type")
-    table.add_column("English Fitness Score")
-    table.add_column("English Similarity Score")
-    table.add_column("Printable Character %")
-    table.add_column("Overall Score")
+    def prefix_on_top(scores):
+        best_score = max(scores, key=lambda s: s.score)
+        for score in scores:
+            if score.key.startswith(key_prefix):
+                score.score += best_score.score
+        return scores
 
-    results = list()
-    with Pool() as p:
-        with Progress() as progress:
-            task_id = progress.add_task("Decrypting and Scoring...", total=len(ranked_keys))
-            for result in p.imap(xor_fitness, ((key, key_score, c_text) for key, key_score in ranked_keys)):
-                results.append(result)
-                progress.advance(task_id)
-
-    best_score = max(results, key=lambda x:x[6])
-    
-    # If a key starts with our found key_prefix, then push it up to the top of the list
-    # i.e. rank it higher
+    ks = KeyScorer(c_text, xor_decrypt)
     if key_prefix:
-        for i in range(len(results)):
-            if results[i][1].startswith(key_prefix):
-                # results[i][6] += best_score[6]
-                results[i] = (*results[i][:6], results[i][6] + best_score[6])
+        ks.score(keys, key_scores, prefix_on_top)
+    else:
+        ks.score(keys, key_scores)
 
-    for i, res in enumerate(sorted(results, key=lambda x:x[6], reverse=True)):
-        # Only show top 25 Percentile
-        if i > len(results)//4:
-            break
-
-        table.add_row(
-            repr(res[0][:24])[2:-1],
-            repr(res[1])[2:-1],
-            res[2][:16],
-            "{:.2f}".format(res[3] * 1000),
-            "{:.2f}".format(res[4]),
-            "{:.2f}%".format(res[5]*100),
-            "{:.2f}".format(res[6])
-        )
-    print(table)
+    ks.print()
 
 
 def main():
