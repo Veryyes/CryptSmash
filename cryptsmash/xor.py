@@ -13,12 +13,13 @@ from multiprocessing import Pool
 
 from rich import print
 from rich.table import Table
+from rich.console import Group
 from rich.prompt import Prompt
 from rich import progress
 import numpy as np
 
 from cryptsmash.utils import read_blks, rich_map, data_dir
-from cryptsmash.plaintext import fitness
+from cryptsmash.plaintext import fitness, fitness_multiproc
 from cryptsmash.utils import f_size
 
 def xor(data:bytes, key:bytes):
@@ -148,11 +149,30 @@ def detect_key_length(f:IO, num_cores=None, max_key_len=32, n:int=10, verbose=Tr
     return sorted(maximums, key=lambda x:x[1], reverse=True)[:n]
 
 
+class ProgressTable(progress.Progress):
+    def get_renderables(self):
+        table = Table()
+        table.add_column("Score")
+        table.add_column("Candidate Key")
+
+        for task in self.tasks:
+            for i, state in enumerate(sorted(task.fields['table'])):
+                if i == task.fields['top_n']:
+                    break
+
+                score, base_key = state
+                table.add_row(
+                    "{:.4f}".format(-score),
+                    str(base_key)[2:-1]
+                )
+            yield Group(self.make_tasks_table(self.tasks), table)
+
 def known_plaintext_prefix(
     f:IO, 
     known_prefix:bytes,
     candidate_key_lens:List[Tuple[int, float]],
-    key_max_length:int=64
+    key_max_length:int=64,
+    top_n=10,
 ) -> Tuple[bytes, bool]:
     '''
     Partial or Full Key recovery based on a known plaintext prefix
@@ -176,7 +196,7 @@ def known_plaintext_prefix(
     # The case where we have the partial key, or the entire key itself exactly
     key_score_lookup = defaultdict(lambda: min(candidate_key_lens, key=lambda x:x[1])[1])
     for key_len, score in candidate_key_lens:
-        key_score_lookup[key_len] = score
+        key_score_lookup[key_len] = score     
 
     # Try to rebuild the plaintext and score guessed plaintexts
     f.seek(0)
@@ -185,39 +205,46 @@ def known_plaintext_prefix(
     s = fitness(simplified_key, key_score_lookup[len(simplified_key)], cipher_txt, xor)
     keys.put((-s.score, simplified_key))
 
-    run_for = 500
+    run_for = key_max_length - len(simplified_key)
+    with Pool() as p:
+        with ProgressTable() as progress_bar:
+            explored = []
+            task = progress_bar.add_task("Trying to interpolate partial key...", total=run_for, table=explored, top_n=top_n)
+            for _ in range(run_for):
+                explore_key = False
+                while not explore_key:
+                    if keys.empty():
+                        break
 
-    explored = []
-    with progress.Progress() as progress_bar:
-        task = progress_bar.add_task("Trying to intepolate partial key...", total=run_for)
-        for _ in range(run_for):
-            explore_key = False
-            while not explore_key:
-                if keys.empty():
+                    score, base_key = keys.get()
+                    explored.append((score, base_key))
+
+                    if len(base_key) <= key_max_length:
+                        explore_key = True        
+                        
+                if not explore_key:
+                    progress_bar.update(task, completed=True)
                     break
 
-                score, base_key = keys.get()
-                explored.append((score, base_key))
+                for new_scores in p.imap(
+                    fitness_multiproc,
+                    ((base_key + int.to_bytes(b, 1, 'little'), key_score_lookup[len(base_key)+1], cipher_txt, xor) for b in range(255))
+                ):
+                    keys.put((-new_scores.score, new_scores.key))
 
-                if len(base_key) <= key_max_length:
-                    explore_key = True        
-            if not explore_key:
-                progress_bar.update(task, completed=True)
-                break
-
-            for char in range(255):
-                b = int.to_bytes(char, length=1, byteorder='little')
-                candidate_key = base_key + b
-                s = fitness(candidate_key, key_score_lookup[len(candidate_key)], cipher_txt, xor)
-                keys.put((-s.score, candidate_key))
-            progress_bar.update(task, advance=1)
+                progress_bar.update(task, advance=1, table=explored, top_n=top_n)
 
     # Place all the explored states back in the queue
     # to select the best out of all possible states explored
     for e in explored:
         keys.put(e)
 
-    _, best = keys.get()
+    # _, best = keys.get()
+    best = []
+    for i in range(top_n):
+        _, key = keys.get()
+        best.append(key)
+
     return best, False
 
 
@@ -494,14 +521,16 @@ def xor_smash(f:IO, ptxt_prefix=None, verbose=False, console=None):
                 console.log(key_prefix)
                 return
         else:
-            partial_key = candidate_key
-            print(f"Found Partial Key: {partial_key}")
+            print(f"Found Partial Keys: {candidate_key}")
     
     # Create a set of all possible bytearrays we think could be keys
     f.seek(0)
     ptxt_len = f_size(f)
+
     candidate_keys = set()
-    if candidate_key:
+    if isinstance(candidate_key, list):
+        candidate_keys |= set(candidate_key)
+    elif candidate_key:
         candidate_keys.add(candidate_key)
 
     ###################

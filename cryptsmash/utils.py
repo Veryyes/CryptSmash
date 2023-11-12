@@ -154,3 +154,41 @@ def rich_map(func:Callable, args:Iterable[Tuple], total=None, num_cores=None, jo
                     visible=not disabled
                 )
                 return [f.result() for f in futures]
+
+class ProcessSafePriorityQueue:
+    def __init__(self):
+        self.queue = multiprocessing.Manager().list()
+        self.lock = multiprocessing.Lock()
+
+    def put(self, x):
+        priority, _ = x
+        with self.lock:
+            if len(self.queue) == 0:
+                self.queue.append(x)
+            else:
+                for i, e in enumerate(self.queue):
+                    queued_priority, _ = e
+                    if priority < queued_priority:
+                        self.queue.insert(i, x)
+                        break
+                else:
+                    self.queue.append(x)
+                
+
+    def get(self):
+        with self.lock:
+            if len(self.queue) > 0:
+                return self.queue.pop(0)
+            else:
+                return None
+
+    def empty(self):
+        return len(self) == 0
+
+    def clear(self):
+        with self.lock:
+            del self.queue[:]
+
+    def __len__(self):
+        with self.lock:
+            return len(self.queue)

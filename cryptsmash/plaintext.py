@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import get_type_hints, Type, Tuple, Callable, Union, List, Dict, Hashable
+from typing import get_type_hints, Type, Tuple, Callable, Union, List, Dict, Hashable, Any
 import os
 import json
 import csv
@@ -117,7 +117,7 @@ class KeyScorer:
                 break
 
             if isinstance(score.key, bytes):
-                key = repr(score.key)[2:-1],
+                key = repr(score.key)[2:-1]
             else:
                 key = str(score.key)
 
@@ -126,7 +126,7 @@ class KeyScorer:
             else:
                 ptxt = str(score.plain_text)
 
-            renderables = (
+            row = (
                 ptxt,
                 key,
                 score.file_type[:16],
@@ -139,10 +139,10 @@ class KeyScorer:
 
             for best_subscore in self.bests.values():
                 if score == best_subscore:
-                    table.add_row(*renderables, style='green')
+                    table.add_row(*row, style='green')
                     break
             else:
-                table.add_row(*renderables)
+                table.add_row(*row)
 
         print(table)
 
@@ -163,12 +163,13 @@ def fitness(key:Any, key_score:float, cipher_text:Union[str, bytes], decrypt:Cal
     score = key_score
     known_file, file_type = is_known_file(plain_txt)
     if known_file:
-        score  *= .99
+        score *= .99
     else:
         score *= .005
     
+    
     eng_fitness = quadgram_fitness(plain_txt.upper(), English)
-    eng_similiarity = inv_chi_squared(frequency_table(plain_txt), English.byte_distro, len(plain_txt))
+    eng_similiarity = inv_chi_squared(frequency_table(plain_txt), English.byte_distro, len(plain_txt))    
     eng_word_score = keyword_score(plain_txt, English.word_count)    
 
     printable_percent = printable_percentage(plain_txt)
@@ -200,6 +201,9 @@ def keyword_score(data, score_table:Dict):
     score = 0
     data = data.lower()
     for word, prob in score_table.items():
+        if isinstance(data, bytes):
+            word = bytes(word, 'ascii')
+
         if word in data:
             score += prob
     return score
