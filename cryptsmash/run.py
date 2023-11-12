@@ -1,5 +1,6 @@
 from pathlib import Path
 import json
+import string
 
 import typer
 from typing_extensions import Annotated
@@ -14,8 +15,9 @@ from cryptsmash.utils import *
 from cryptsmash.plaintext import *
 from cryptsmash.xor import xor_smash
 from cryptsmash.xor import xor as xor_decrypt
-from cryptsmash import baconian
-
+from cryptsmash import baconian as _baconian
+from cryptsmash import railfence as _railfence
+from cryptsmash import affine as _affine
 
 app = typer.Typer()
 console = Console()
@@ -70,26 +72,54 @@ def stats(
         sns.histplot(df, x='x', weights='w', bins=256)
         plt.show()
 
-# @app.command()
-# def bacon(
-#     p:Annotated[Path, typer.Argument(help="File Path to the Encrypted File")]
-# ):
-#     with open(p, 'r') as f:
-#         plain = baconian.decrypt(f.read())
-    
+@app.command()
+def baconian(
+    p:Annotated[Path, typer.Argument(help="File Path to the Encrypted File")],
+    symbol1:Annotated[str, typer.Option("--s1", help="First Symbol to use in the Baconian Encoding")]='A',
+    symbol2:Annotated[str, typer.Option("--s2", help="Second Symbol to use in the Baconian Encoding")]='B'
+):
+    with open(p, 'r') as f:
+        ctxt = f.read()
+        print(_baconian.decrypt(ctxt, symb1=symbol1, symb2=symbol2))
+
+@app.command()
+def railfence(
+    p:Annotated[Path, typer.Argument(help="File Path to the Encrypted File")],
+):
+    with open(p, 'r') as f:
+        ctxt = f.read()
+
+    keys = _railfence.smash(ctxt)
+    ks = KeyScorer(ctxt, _railfence.decrypt)
+    ks.score(keys)
+
+    ks.print()
+
+@app.command()
+def affine(
+    p:Annotated[Path, typer.Argument(help="File Path to the Encrypted File")],
+    alphabet:Annotated[str, typer.Option("-a", "--alphabet", help="The alphabet to use (defaults to lower case ascii)")]=string.ascii_lowercase
+):
+    with open(p, 'r') as f:
+        ctxt = f.read().lower()
+
+    keys = _affine.smash(None, alphabet)
+    ks = KeyScorer(ctxt, _affine.decrypt)
+    ks.score(keys)
+
+    ks.print()
+
+
+# crib:Annotated[str , typer.Option("-c", "--crib", help="Known Mapping of letters in the substitution e.g. (\'-c a,z,b,y,c,x\' maps a->z, b->y, and c->x)")]=None
 
 @app.command()
 def xor(
     p:Annotated[Path, typer.Argument(help="File Path to the XOR Encrypted File")],
     known_prefix:Annotated[str, typer.Option("-kp", '--known-prefix', help="Known Plaintext Prefix")]=None,
-    decrypt:Annotated[bool, typer.Option(help="Attempt Decryption With All Keys")]=True,
     verbose:Annotated[bool, typer.Option()]=True
 ):
     with open(p, 'rb') as f:
         keys, key_scores, key_prefix = xor_smash(f, known_prefix, verbose, console)
-
-        if not decrypt:
-            return
 
         f.seek(0)
         c_text = f.read()

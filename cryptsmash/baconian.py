@@ -1,4 +1,5 @@
 import string
+import re
 
 ######################################################################
 # Bacon's Cipher is more of a 5bit encoding scheme than a cipher imo #
@@ -37,26 +38,28 @@ standard_bacon_rev = dict()
 for k,v in standard_bacon.items():
      standard_bacon_rev[v] = k   
 
-def encrypt(ptxt:str, symb1='A', symb2='B', standard=True):
+def encrypt(ptxt:str, symb1='A', symb2='B', standard=True, delimiter=""):
     ctxt = list()
     if standard:
         for p in ptxt:
             p = p.lower()
             ctxt.append(standard_bacon[p])
-        ctxt = ''.join(ctxt)
+        ctxt = delimiter.join(ctxt)
         ctxt = ctxt.replace('a', symb1)
         ctxt = ctxt.replace('b', symb2)
     else:
         for p in ptxt:
             p = p.lower()
             ctxt.append(bin(string.ascii_lowercase.index(p))[2:])
-        ctxt = ''.join(ctxt)
+        ctxt = delimiter.join(ctxt)
         ctxt = ctxt.replace('0', symb1)
         ctxt = ctxt.replace('1', symb2)
     
     return ctxt
 
 def decrypt(ctxt:str, symb1='A', symb2='B', standard=True):
+    ctxt = re.sub(r'\s|[^a-zA-Z0-9]', "", ctxt)
+
     ptxt = list()
     if standard:
         ctxt = ctxt.replace(symb1, 'a')
@@ -73,4 +76,4 @@ def decrypt(ctxt:str, symb1='A', symb2='B', standard=True):
             block = ctxt[i:i+5]
             ptxt.append(chr(int(block,2) + ord('a')))
 
-    return ''.join(ptxt)
+    return "".join(ptxt)

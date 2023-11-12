@@ -46,7 +46,7 @@ def frequency_table(
     return freq
 
 #http://practicalcryptography.com/cryptanalysis/text-characterisation/chi-squared-statistic/
-def chi_squared(
+def inv_chi_squared(
     counts:Dict[bytes, int], 
     distrib:Dict[bytes, float], 
     length:str, 
@@ -67,14 +67,14 @@ def chi_squared(
     
     assert max_factor > 0, "Everything in the distribution is 0!"
 
-    running_sum = 0.0
+    running_sum = 1.0
     for letter in alphabet:
         if distrib[letter] == 0:
             running_sum += (math.pow(counts[letter] - (max_factor*length), 2) / (max_factor*length))
         else:
             running_sum += (math.pow(counts[letter] - (distrib[letter]*length), 2) / (distrib[letter]*length))
 
-    return running_sum/len(alphabet)
+    return 1 / running_sum
 
 # http://practicalcryptography.com/cryptanalysis/text-characterisation/index-coincidence/
 @staticmethod

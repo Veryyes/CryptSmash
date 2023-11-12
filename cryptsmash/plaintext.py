@@ -1,7 +1,8 @@
 from __future__ import annotations
-from typing import Type, Tuple, Callable, Union, List
+from typing import get_type_hints, Type, Tuple, Callable, Union, List, Dict, Hashable
 import os
 import json
+import csv
 from math import log10
 from multiprocessing import Pool
 from dataclasses import dataclass
@@ -11,7 +12,7 @@ from rich.progress import Progress
 from rich import print
 from rich.table import Table
 
-from cryptsmash.utils import data_dir, chi_squared, frequency_table
+from cryptsmash.utils import data_dir, inv_chi_squared, frequency_table
 #############################################
 # Attempt Decryption with all Keys and Rank #
 #############################################
@@ -37,12 +38,16 @@ from cryptsmash.utils import data_dir, chi_squared, frequency_table
 @dataclass
 class Score:
     plain_text: Union[str, bytes]
-    key: Union[str, bytes]
+    key: Hashable
     file_type: str
     eng_fitness: float
     eng_similarity: float
+    eng_word_score: float
     printable_percent:float
     score:float
+
+    def __hash__(self):
+        return hash(self.key)
 
     def __lt__(self, other:Score):
         return self.score < other.score
@@ -54,14 +59,35 @@ class KeyScorer:
         self.decrypt_func = decrypt_func
         self.scores:List[Score] = list()
 
-    def score(self, keys, key_scores, hook:Callable[[List[Score]]] = None):
+        # Keep a map of the best Score for each sub score (and the overall one)
+        self.bests = dict()
+        for var_name, var_type in get_type_hints(Score).items():
+            if var_type == float or var_type == int:
+                self.bests[var_name] = None
+        
+
+    def add(self, s:Score):
+        self.scores.append(s)
+
+        # Keep Track of the best score for each subscore (and the overall one)
+        for var_name in self.bests.keys():
+            if self.bests[var_name] is None:
+                self.bests[var_name] = s
+
+            elif getattr(s, var_name) > getattr(self.bests[var_name], var_name):
+                self.bests[var_name] = s
+
+    def score(self, keys, key_scores=None, hook:Callable[[List[Score]]] = None):
+        if key_scores is None:
+            key_scores = [1] * len(keys)
+
         assert len(keys) == len(key_scores)
 
         with Pool() as p:
             with Progress() as progress:
                 task_id = progress.add_task("Decrypting and Scoring...", total=len(keys))
                 for result in p.imap(fitness_multiproc, ((key, score, self.cipher_text, self.decrypt_func) for key, score in zip(keys, key_scores))):
-                    self.scores.append(result)
+                    self.add(result)
                     progress.advance(task_id)
 
         # Special Logic that might make more sense for a particular cipher
@@ -75,30 +101,49 @@ class KeyScorer:
         assert top_percent > 0 and top_percent <= 100
         assert len(self.scores) > 0
 
-        table = Table(title="Plaintexts")
+        table = Table(title=f"Plaintexts (Top {top_percent} %)")
         table.add_column("Plain Text")
         table.add_column("Key")
         table.add_column("File Type")
-        table.add_column("English Fitness Score")
-        table.add_column("English Similarity Score")
+        table.add_column("Eng Fitness Score")
+        table.add_column("Eng Similarity Score")
+        table.add_column("Eng KeyWord Score")
         table.add_column("Printable Character %")
         table.add_column("Overall Score")
-
-        # top_proportion = (100 - top_percent) / 100
+        
         top_percent = top_percent / 100
         for i, score in enumerate(self.scores):
-            if i > len(self.scores) // top_percent:
+            if i > len(self.scores) * top_percent:
                 break
 
-            table.add_row(
-                repr(score.plain_text[:24])[2:-1],
-                repr(score.key)[2:-1],
+            if isinstance(score.key, bytes):
+                key = repr(score.key)[2:-1],
+            else:
+                key = str(score.key)
+
+            if isinstance(score.plain_text, bytes):
+                ptxt = repr(score.plain_text[:24])[2:-1]
+            else:
+                ptxt = str(score.plain_text)
+
+            renderables = (
+                ptxt,
+                key,
                 score.file_type[:16],
                 "{:.2f}".format(score.eng_fitness * 1000),
                 "{:.2f}".format(score.eng_similarity),
+                "{:.2f}".format(score.eng_word_score),
                 "{:.2f}%".format(score.printable_percent*100),
-                "{:.2f}".format(score.score)
+                "{:.4f}".format(score.score)
             )
+
+            for best_subscore in self.bests.values():
+                if score == best_subscore:
+                    table.add_row(*renderables, style='green')
+                    break
+            else:
+                table.add_row(*renderables)
+
         print(table)
 
 
@@ -109,7 +154,7 @@ class KeyScorer:
         return scores
 
 
-def fitness(key:bytes, key_score:float, cipher_text:bytes, decrypt:Callable[[bytes, bytes], bytes]):
+def fitness(key:Any, key_score:float, cipher_text:Union[str, bytes], decrypt:Callable):
     plain_txt = decrypt(cipher_text, key)
 
     if key_score == 0:
@@ -121,15 +166,17 @@ def fitness(key:bytes, key_score:float, cipher_text:bytes, decrypt:Callable[[byt
         score  *= .99
     else:
         score *= .005
-
+    
     eng_fitness = quadgram_fitness(plain_txt.upper(), English)
-    eng_similiarity = chi_squared(frequency_table(plain_txt), English.byte_distro, len(plain_txt))
+    eng_similiarity = inv_chi_squared(frequency_table(plain_txt), English.byte_distro, len(plain_txt))
+    eng_word_score = keyword_score(plain_txt, English.word_count)    
+
     printable_percent = printable_percentage(plain_txt)
-
+    
     score *= eng_fitness * eng_similiarity * printable_percent
-    score = score**(1/5)
+    score = score**(1/6)
 
-    return Score(plain_txt, key, file_type, eng_fitness, eng_similiarity, printable_percent, score)
+    return Score(plain_txt, key, file_type, eng_fitness, eng_similiarity, eng_word_score, printable_percent, score)
 
 def fitness_multiproc(args):
     key, key_score, cipher_text, decrypt_func = args
@@ -139,13 +186,23 @@ def printable_percentage(data:bytes) -> float:
     '''
     Returns the percentage of bytes that are printable
     '''
+    if isinstance(data, str):
+        return 1
+
     count = 0
     for b in data:
-        # num = int.from_bytes(b, 'little')
         if b >= 32 and b <= 126:
             count += 1
 
     return count / len(data)
+
+def keyword_score(data, score_table:Dict):
+    score = 0
+    data = data.lower()
+    for word, prob in score_table.items():
+        if word in data:
+            score += prob
+    return score
 
 def quadgram_fitness(data:bytes, lang:Type[Language]) -> float:
     score = 0
@@ -162,6 +219,7 @@ class Language:
     byte_distro:Dict[int, float]
     quadgrams:Dict[bytes, int]
     quadgram_total:int = 1
+    word_count:Dict[str, float]
 
 class English(Language):
     '''English Specific Statistics'''
@@ -187,3 +245,13 @@ class English(Language):
     for key in quadgrams.keys():
         quadgrams[key] = log10(1 + (quadgrams[key] / quadgram_total))
 
+    total = 0
+    word_count = dict()
+    with open(os.path.join(data_dir(), "english_word_count.tsv"), 'r') as f:
+        tsv = csv.reader(f, delimiter='\t')
+        for row in tsv:
+            word_count[row[0]] = int(row[1])
+            total += int(row[1])
+
+    for word in word_count.keys():
+        word_count[word] = word_count[word] / total
