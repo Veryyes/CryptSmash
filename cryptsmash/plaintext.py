@@ -46,12 +46,17 @@ class Score:
     printable_percent:float
     score:float
 
+    def __repr__(self):
+        return f"<Score ftype: {self.file_type}, eng_fit: {self.eng_fitness:.3f}, eng_sim: {self.eng_similarity:.3f}, eng_word:{self.eng_word_score:.3f}, printable: {self.printable_percent*100:.1f}, score: {self.score:.4f}>"
+
     def __hash__(self):
         return hash(self.key)
 
     def __lt__(self, other:Score):
         return self.score < other.score
 
+    def __gt__(self, other:Score):
+        return self.score > other.score
 
 class KeyScorer:
     def __init__(self, cipher_text, decrypt_func:Callable):
@@ -98,7 +103,9 @@ class KeyScorer:
         self.scores = sorted(self.scores, reverse=True)
 
     def print(self, top_percent:int=25):
-        assert top_percent > 0 and top_percent <= 100
+        if not (top_percent >= 0 and top_percent <= 100):
+            raise ValueError("Percentage must be between [0, 100]")
+
         assert len(self.scores) > 0
 
         table = Table(title=f"Plaintexts (Top {top_percent} %)")
@@ -111,7 +118,7 @@ class KeyScorer:
         table.add_column("Printable Character %")
         table.add_column("Overall Score")
         
-        top_percent = top_percent / 100
+        top_percent = top_percent / 100 
         for i, score in enumerate(self.scores):
             if i > len(self.scores) * top_percent:
                 break
@@ -161,6 +168,7 @@ def fitness(key:Any, key_score:float, cipher_text:Union[str, bytes], decrypt:Cal
         key_score = .0001
 
     score = key_score
+    
     known_file, file_type = is_known_file(plain_txt)
     if known_file:
         score *= .99
@@ -174,7 +182,7 @@ def fitness(key:Any, key_score:float, cipher_text:Union[str, bytes], decrypt:Cal
 
     printable_percent = printable_percentage(plain_txt)
     
-    score *= eng_fitness * eng_similiarity * printable_percent
+    score *= eng_fitness * eng_similiarity * printable_percent * eng_word_score
     score = score**(1/6)
 
     return Score(plain_txt, key, file_type, eng_fitness, eng_similiarity, eng_word_score, printable_percent, score)
@@ -210,8 +218,9 @@ def keyword_score(data, score_table:Dict):
 
 def quadgram_fitness(data:bytes, lang:Type[Language]) -> float:
     score = 0
+    lowest = log10(1 + (0.01/lang.quadgram_total))
     for i in range(len(data) - 3):
-        score += lang.quadgrams.get(data[i:i+4], log10(1 + (0.01/lang.quadgram_total)))
+        score += lang.quadgrams.get(data[i:i+4], lowest)
     return score / (len(data)/4)
 
 def is_known_file(data:bytes) -> Tuple[bool, str]:

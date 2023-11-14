@@ -15,7 +15,8 @@ setup(
         'numpy',
         'seaborn',
         'pandas',
-        'python-magic'
+        'python-magic',
+        'asciichartpy'
     ],
     extras_require = {
         'dev': ['pytest']

@@ -18,6 +18,7 @@ from cryptsmash.xor import xor as xor_decrypt
 from cryptsmash import baconian as _baconian
 from cryptsmash import railfence as _railfence
 from cryptsmash import affine as _affine
+from cryptsmash import substitution as _substitution
 
 app = typer.Typer()
 console = Console()
@@ -85,6 +86,7 @@ def baconian(
 @app.command()
 def railfence(
     p:Annotated[Path, typer.Argument(help="File Path to the Encrypted File")],
+    top_percent:Annotated[int, typer.Option("-p", "--percent", help="Only show the top p percent of results")]=25
 ):
     with open(p, 'r') as f:
         ctxt = f.read()
@@ -93,12 +95,13 @@ def railfence(
     ks = KeyScorer(ctxt, _railfence.decrypt)
     ks.score(keys)
 
-    ks.print()
+    ks.print(top_percent=top_percent)
 
 @app.command()
 def affine(
     p:Annotated[Path, typer.Argument(help="File Path to the Encrypted File")],
-    alphabet:Annotated[str, typer.Option("-a", "--alphabet", help="The alphabet to use (defaults to lower case ascii)")]=string.ascii_lowercase
+    alphabet:Annotated[str, typer.Option("-a", "--alphabet", help="The alphabet to use (defaults to lower case ascii)")]=string.ascii_lowercase,
+    top_percent:Annotated[int, typer.Option("-p", "--percent", help="Only show the top p percent of results")]=25
 ):
     with open(p, 'r') as f:
         ctxt = f.read().lower()
@@ -107,16 +110,41 @@ def affine(
     ks = KeyScorer(ctxt, _affine.decrypt)
     ks.score(keys)
 
-    ks.print()
+    ks.print(top_percent=top_percent)
 
+@app.command()
+def substitution(
+    p:Annotated[Path, typer.Argument(help="File Path to the Encrypted File")],
+    alphabet:Annotated[str, typer.Option("-a", "--alphabet", help="The alphabet to use (defaults to lower case ascii)")]=string.ascii_lowercase,
+    top_percent:Annotated[int, typer.Option("-p", "--percent", help="Only show the top p percent of results")]=25,
+    crib:Annotated[str , typer.Option("-c", "--crib", help="Known Mapping of letters in the substitution e.g. (\'-c a,z,b,y,c,x\' maps a->z, b->y, and c->x)")]=None,
+    delimiter:Annotated[str, typer.Option("-d", "--delimiter", help="Specify a different delimiter for the crib (-c, --crib) option (Default: \",\")")]=",",
+    verbose:Annotated[bool, typer.Option()]=True,
+):
+    with open(p, 'r') as f:
+        ctxt = f.read()
 
-# crib:Annotated[str , typer.Option("-c", "--crib", help="Known Mapping of letters in the substitution e.g. (\'-c a,z,b,y,c,x\' maps a->z, b->y, and c->x)")]=None
+    if crib is not None:
+        known = dict()
+        crib = crib.split(delimiter)
+        for i in range(0, len(crib), 2):
+            known[crib[i]] = crib[i+1]
+
+        crib = known
+
+    keys = _substitution.smash(ctxt, alphabet, crib, verbose=verbose)
+    ks = KeyScorer(ctxt, _substitution.decrypt)
+    ks.score(keys)
+
+    ks.print(top_percent=top_percent)
+
 
 @app.command()
 def xor(
     p:Annotated[Path, typer.Argument(help="File Path to the XOR Encrypted File")],
     known_prefix:Annotated[str, typer.Option("-kp", '--known-prefix', help="Known Plaintext Prefix")]=None,
-    verbose:Annotated[bool, typer.Option()]=True
+    verbose:Annotated[bool, typer.Option()]=True,
+    top_percent:Annotated[int, typer.Option("-p", "--percent", help="Only show the top p percent of results")]=25
 ):
     with open(p, 'rb') as f:
         keys, key_scores, key_prefix = xor_smash(f, known_prefix, verbose, console)
@@ -137,7 +165,7 @@ def xor(
     else:
         ks.score(keys, key_scores)
 
-    ks.print()
+    ks.print(top_percent=top_percent)
 
 
 def main():
