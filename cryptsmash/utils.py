@@ -1,5 +1,5 @@
 import multiprocessing
-from typing import Callable, Iterable, Tuple, Dict, List, Set, Any, IO
+from typing import Callable, Iterable, Tuple, Dict, List, Set, Any, IO, Hashable
 from collections import defaultdict
 from concurrent.futures import ProcessPoolExecutor
 import pkgutil
@@ -33,9 +33,8 @@ def byte_prob(f:IO):
     return np.bincount(np_data, minlength=256) / len(np_data)
     
 def frequency_table(
-    data:bytes, 
-    alphabet:Set[bytes]=set([int.to_bytes(x, length=1, byteorder='little') for x in range(256)])
-) -> Dict[bytes, int]:
+    data:Hashable
+) -> Dict[Hashable, int]:
 
     freq = defaultdict(lambda: 0)
 
