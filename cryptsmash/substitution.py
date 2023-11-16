@@ -74,6 +74,8 @@ def smash(ctxt:Union[str, bytes], alphabet=string.ascii_lowercase, crib:Dict[str
     unknown_targets = set(alphabet) - set(crib.values())
     candidate_keys = dict()
 
+    num_unknown_states = math.factorial(len(unknowns))
+
     #######################################################################################################
     # If the cipher text is big enough we use the frequency of the presumed language to seed the algorith #
     #######################################################################################################
@@ -118,14 +120,15 @@ def smash(ctxt:Union[str, bytes], alphabet=string.ascii_lowercase, crib:Dict[str
             candidate_keys[preimg[0]] = img[0]
 
     key = candidate_keys | crib
+    best_key = key.copy()
     best_score = fitness(key, 1, ctxt, decrypt)
     exp_scale = 2 - round(math.log10(best_score.score)) 
 
     suboptimal_count = 0
     count = 0
-    temp = .1
+    temp = .01
     score_history = [best_score.score]
-    max_runs = 10000
+    max_runs = min(10000, num_unknown_states)
 
     with ProgressTable() as bar:
         bar.exp_scale = exp_scale
@@ -151,6 +154,7 @@ def smash(ctxt:Union[str, bytes], alphabet=string.ascii_lowercase, crib:Dict[str
             
             if score > best_score:
                 best_score = score
+                best_key = key.copy()
 
             if score > best_score or random.random() < metro:            
                 suboptimal_count = 0
@@ -162,11 +166,16 @@ def smash(ctxt:Union[str, bytes], alphabet=string.ascii_lowercase, crib:Dict[str
                         bar.reset(task, total=max_runs)
                         
             else:
+                # This was shittier option, swap back to the parent to regen a child
+                tmp = candidate_keys[k1]
+                candidate_keys[k1] = candidate_keys[k2]
+                candidate_keys[k2] = tmp
+
                 suboptimal_count += 1
                 bar.update(task, advance=1, scores=score_history, best=best_score)
 
             
             count += 1
+    print(f"Approx {100 * (count / num_unknown_states)}% of search space covered")
 
-
-    return [key]
+    return [best_key]
