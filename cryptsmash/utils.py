@@ -6,6 +6,7 @@ import pkgutil
 import os
 import io
 import math
+import string
 
 import numpy as np
 from rich import progress
@@ -86,12 +87,36 @@ def index_of_coincidence(
     '''
     denominiator = len(data) * (len(data) - 1)
     numerator = 0
-    frequency = frequency_table(data, alphabet)
+    frequency = frequency_table(data)
     for count in frequency.values():
         numerator += (count * (count - 1))
     
     return numerator / denominiator
 
+
+@staticmethod
+def polyalpha_keylen(ctxt, max_key_len=32, alphabet=string.ascii_lowercase):
+    ioc_periods = list()
+
+    for i in range(1, max_key_len):
+        seqs = [list() for _ in range(i)]
+        count = 0
+        for char in ctxt:
+            seqs[count%i].append(char)
+            count += 1
+
+        ioc_values = list()
+
+        for seq in seqs:
+            if len(seq) < 2:
+                ioc_values.append(0)
+            else:
+                ioc_values.append(index_of_coincidence(''.join(seq), alphabet=alphabet))
+
+        ave_ioc = np.average(np.array(ioc_values))
+        ioc_periods.append(ave_ioc)
+
+    return np.argmax(ioc_periods) + 1
 
 def rich_map(func:Callable, args:Iterable[Tuple], total=None, num_cores=None, job_title=None, disabled=False) -> List[Any]:
     '''

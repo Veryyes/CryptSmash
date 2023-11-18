@@ -19,6 +19,7 @@ from cryptsmash import baconian as _baconian
 from cryptsmash import railfence as _railfence
 from cryptsmash import affine as _affine
 from cryptsmash import substitution as _substitution
+from cryptsmash import vigenere as _vigenere
 
 app = typer.Typer()
 console = Console()
@@ -138,6 +139,21 @@ def substitution(
 
     ks.print(top_percent=top_percent)
 
+
+@app.command()
+def vigenere(
+    p:Annotated[Path, typer.Argument(help="File Path to the Encrypted File")],
+    alphabet:Annotated[str, typer.Option("-a", "--alphabet", help="The alphabet to use (defaults to lower case ascii)")]=string.ascii_lowercase,
+    top_percent:Annotated[int, typer.Option("-p", "--percent", help="Only show the top p percent of results")]=25,
+):
+    with open(p, 'r') as f:
+        ctxt = f.read()
+
+    keys = _vigenere.smash(ctxt, alphabet)
+    ks = KeyScorer(ctxt,  _vigenere.decrypt)
+    ks.score(keys)
+
+    ks.print(top_percent=top_percent)
 
 @app.command()
 def xor(

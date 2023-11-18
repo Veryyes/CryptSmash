@@ -163,7 +163,7 @@ class KeyScorer:
 
 def fitness(key:Any, key_score:float, cipher_text:Union[str, bytes], decrypt:Callable):
     plain_txt = decrypt(cipher_text, key)
-
+    
     if key_score == 0:
         key_score = .0001
 
@@ -174,7 +174,6 @@ def fitness(key:Any, key_score:float, cipher_text:Union[str, bytes], decrypt:Cal
         score *= .99
     else:
         score *= .005
-    
     
     eng_fitness = quadgram_fitness(plain_txt.upper(), English)
     eng_similiarity = inv_chi_squared(frequency_table(plain_txt), English.byte_distro, len(plain_txt))    
