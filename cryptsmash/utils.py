@@ -52,7 +52,6 @@ def alphabet_dist(alphabet:List, lang:Language, encoding='utf8') -> Dict[Union[s
 
     return alpha_dist
 
-    
 def frequency_table(
     data:Hashable
 ) -> Dict[Hashable, int]:

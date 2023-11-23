@@ -1,7 +1,7 @@
 import string
 
-from cryptsmash.plaintext import fitness, English, Language
-from cryptsmash.utils import frequency_table, polyalpha_keylen
+from cryptsmash.plaintext import English, Language
+from cryptsmash.utils import alphabet_dist, polyalpha_keylen
 
 
 def encrypt(ptxt, key, alphabet=string.ascii_lowercase):
@@ -28,16 +28,11 @@ def decrypt(ctxt, key, alphabet=string.ascii_lowercase):
 def smash(ctxt, alphabet=string.ascii_lowercase, presumed_lang:Language=English):
     ctxt = [c for c in ctxt if c in alphabet]
     
-    alpha_dist = dict()
-    threshold = list()
-    for a in alphabet:
-        if type(a) == str:
-            _a = bytes(a, encoding='utf8')
-        else:
-            _a = a
-
-        alpha_dist[a] = presumed_lang.byte_distro[_a]
-        threshold.append(presumed_lang.byte_distro[_a]**2)
+    threshold = 0
+    
+    alpha_dist = alphabet_dist(alphabet, presumed_lang)
+    for dist in alpha_dist.values():
+        threshold += dist * dist
         
     # Sum of squares 
     threshold = sum(threshold)
@@ -58,7 +53,6 @@ def smash(ctxt, alphabet=string.ascii_lowercase, presumed_lang:Language=English)
         for i, c in enumerate(ctxt):
             freqs[i % key_len][c] += 1
             
-
         # Convert count to probs
         for freq in freqs:
             ttl_char_count = sum(list(freq.values()))
