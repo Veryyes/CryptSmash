@@ -1,5 +1,7 @@
+from __future__ import annotations
+
 import multiprocessing
-from typing import Callable, Iterable, Tuple, Dict, List, Set, Any, IO, Hashable
+from typing import Callable, Iterable, Tuple, Dict, List, Set, Any, IO, Hashable, Union
 from collections import defaultdict
 from concurrent.futures import ProcessPoolExecutor
 import pkgutil
@@ -10,6 +12,8 @@ import string
 
 import numpy as np
 from rich import progress
+
+from cryptsmash.plaintext import Language
 
 def data_dir():
     return os.path.join(os.path.dirname(pkgutil.get_loader('cryptsmash').path), 'data')
@@ -32,7 +36,22 @@ def byte_prob(f:IO):
     data = f.read()
     np_data = np.frombuffer(data, dtype=np.uint8)
     return np.bincount(np_data, minlength=256) / len(np_data)
-    
+
+def alphabet_dist(alphabet:List, lang:Language, encoding='utf8') -> Dict[Union[str, bytes]: float]:
+    alpha_dist = dict()
+
+    is_bytes = isinstance(alphabet[0], bytes)
+
+    for a in alphabet:
+        if not is_bytes:
+            _a = bytes(_a, encoding=encoding)
+        else:
+            _a = a
+
+        alpha_dist[a] = lang.byte_distro[_a]
+
+    return alpha_dist
+
 def frequency_table(
     data:Hashable
 ) -> Dict[Hashable, int]:
