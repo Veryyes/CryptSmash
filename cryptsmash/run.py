@@ -13,8 +13,8 @@ import pandas as pd
 
 from cryptsmash.utils import *
 from cryptsmash.plaintext import *
-from cryptsmash.xor import xor_smash
-from cryptsmash.xor import xor as xor_decrypt
+
+from cryptsmash import xor as _xor
 from cryptsmash import baconian as _baconian
 from cryptsmash import railfence as _railfence
 from cryptsmash import affine as _affine
@@ -163,11 +163,11 @@ def xor(
     top_percent:Annotated[int, typer.Option("-p", "--percent", help="Only show the top p percent of results")]=25
 ):
     with open(p, 'rb') as f:
-        keys, key_scores, key_prefix = xor_smash(f, known_prefix, verbose, console)
+        ctxt = f.read()
 
-        f.seek(0)
-        c_text = f.read()
+    keys, key_scores, key_prefix = _xor.smash(ctxt, known_prefix, verbose, console)
 
+    
     def prefix_on_top(scores):
         best_score = max(scores, key=lambda s: s.score)
         for score in scores:
@@ -175,7 +175,7 @@ def xor(
                 score.score += best_score.score
         return scores
 
-    ks = KeyScorer(c_text, xor_decrypt)
+    ks = KeyScorer(ctxt, _xor.decrypt)
     if key_prefix:
         ks.score(keys, key_scores, prefix_on_top)
     else:

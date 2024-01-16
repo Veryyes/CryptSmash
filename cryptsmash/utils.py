@@ -13,8 +13,6 @@ import string
 import numpy as np
 from rich import progress
 
-from cryptsmash.plaintext import Language
-
 def data_dir():
     return os.path.join(os.path.dirname(pkgutil.get_loader('cryptsmash').path), 'data')
 
@@ -26,12 +24,7 @@ def f_size(f:IO):
 
     return size
 
-def read_blks(f:IO, block_size):
-    data = f.read(block_size)
-    while data:
-        yield data
-        data = f.read(block_size)
-        
+       
 def byte_prob(f:IO):
     data = f.read()
     np_data = np.frombuffer(data, dtype=np.uint8)

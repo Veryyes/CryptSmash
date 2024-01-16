@@ -18,9 +18,14 @@ from rich.prompt import Prompt
 from rich import progress
 import numpy as np
 
-from cryptsmash.utils import read_blks, rich_map, data_dir
+from cryptsmash.utils import rich_map, data_dir
 from cryptsmash.plaintext import fitness, fitness_multiproc
-from cryptsmash.utils import f_size
+
+def encrypt(data:bytes, key:bytes):
+    return xor(data, key)
+
+def decrypt(data:bytes, key:bytes):
+    return xor(data, key)
 
 def xor(data:bytes, key:bytes):
     return bytes(d ^ k for d, k in zip(data, itertools.cycle(key)))
@@ -102,13 +107,12 @@ def _reduce_repeats(data:bytes):
         data = _find_repeats(data)
     return data
 
-def detect_key_length(f:IO, num_cores=None, max_key_len=32, n:int=10, verbose=True):
+def detect_key_length(ctxt:bytes, num_cores=None, max_key_len=32, n:int=10, verbose=True):
     '''
     Detect Key Length by measuring the number of coincidences for each possible key length
     Then looking at local maximum -> Should expect peaks at multiples of the key size
     Based on xortool's key length detection
     '''
-    data = f.read()
     max_key_len += 1
     min_key_len = 1
 
@@ -119,7 +123,7 @@ def detect_key_length(f:IO, num_cores=None, max_key_len=32, n:int=10, verbose=Tr
 
     scores = rich_map(
         _coincidence_score, 
-        ((data, key_len, max_key_len) for key_len in range(min_key_len, max_key_len)), 
+        ((ctxt, key_len, max_key_len) for key_len in range(min_key_len, max_key_len)), 
         total=max_key_len - min_key_len,
         job_title="Scoring Possible Key Sizes",
         disabled=not verbose
@@ -168,7 +172,7 @@ class ProgressTable(progress.Progress):
             yield Group(self.make_tasks_table(self.tasks), table)
 
 def known_plaintext_prefix(
-    f:IO, 
+    ctxt:bytes, 
     known_prefix:bytes,
     candidate_key_lens:List[Tuple[int, float]],
     key_max_length:int=64,
@@ -184,7 +188,7 @@ def known_plaintext_prefix(
     # We get partial/full key with by decrypting the first len(known_prefix) bytes
     # If true key len <= len(known_prefix) -> Full Key Recovered
     # if true key len > len(known_prefix) -> Partial Key Recovered
-    repeated_key = xor(f.read(len(known_prefix)), known_prefix)
+    repeated_key = xor(ctxt[:len(known_prefix)], known_prefix)
 
     # "reduce" out repeated keys
     simplified_key = _reduce_repeats(repeated_key)
@@ -199,8 +203,7 @@ def known_plaintext_prefix(
         key_score_lookup[key_len] = score     
 
     # Try to rebuild the plaintext and score guessed plaintexts
-    f.seek(0)
-    cipher_txt = f.read(2048)
+    cipher_txt = ctxt[:2048]
     keys = queue.PriorityQueue()
     s = fitness(simplified_key, key_score_lookup[len(simplified_key)], cipher_txt, xor)
     keys.put((-s.score, simplified_key))
@@ -249,7 +252,7 @@ def known_plaintext_prefix(
 
 
 def key_in_nulls(
-    f:IO, 
+    ctxt:bytes,
     size:int, 
     suspect_key_len:int=0, 
     block_size=4096, 
@@ -272,7 +275,7 @@ def key_in_nulls(
             
             # Find the largest repeating substrings in blocks of data
             repeated_substrs = set()
-            for substr in p.imap(lrs, read_blks(f, block_size)):
+            for substr in p.imap(lrs, [ctxt[i:i+block_size] for i in range(0, len(ctxt), block_size)]):
                 repeated_substrs.add(substr)
                 progress_bar.advance(task_id)
         
@@ -299,14 +302,14 @@ def key_in_nulls(
     return list(possible_keys)
 
 
-def file_header_key_extract(f:IO, headers:List[bytes]):
+def file_header_key_extract(ctxt:bytes, headers:List[bytes]):
     '''
     Attempts XOR against several file headers hoping the headers are the known plaintext in the case where a whole file is XOR encrypted
     :param f: the IO stream to the file to attack
     :returns: Potential Keys
     '''
     block_size=2048
-    cipher_text = f.read(block_size)
+    cipher_text = ctxt[:block_size]
 
     maybe_keys = list()
     for header in headers:
@@ -383,7 +386,7 @@ def _stat_attack_helper(
     return b''.join([int.to_bytes(k, length=1, byteorder='little') for k in key])
 
 def known_plaintext_statistical_attack(
-    f:IO, 
+    ctxt:bytes,
     byte_distro:Dict[int,float], 
     suspect_key_len=0, 
     max_key_len=32, 
@@ -393,8 +396,7 @@ def known_plaintext_statistical_attack(
     '''
     Attempt to extract the key based on knowning the underlying distribution of the bytes of the plain text. This is the same as breaking a vigenere cipher, but with bytes
     
-    '''
-    data = f.read()   
+    ''' 
     keys = list()
 
     max_key_len += 1
@@ -407,7 +409,7 @@ def known_plaintext_statistical_attack(
     # Multiprocess against each possible key length we guess
     for key in rich_map(
         _stat_attack_helper, 
-        ((data, key_len, byte_distro) for key_len in range(min_key_len, max_key_len)), 
+        ((ctxt, key_len, byte_distro) for key_len in range(min_key_len, max_key_len)), 
         total=max_key_len-min_key_len,
         job_title="Statistical Vigenere-style Attack",
         disabled=not verbose
@@ -486,21 +488,19 @@ def rotations(s):
     for i in range(1, len(s)+1):
         yield s[-i:] + s[:-i]
 
-def xor_smash(f:IO, ptxt_prefix=None, verbose=False, console=None):
+def smash(ctxt:bytes, ptxt_prefix=None, verbose=False, console=None):
 
     # If the first few bytes of the plaintext are known,
     # calculate the part of the key corresponding to the known bytes
-    f.seek(0)
     key_prefix = None
     if ptxt_prefix:
         ptxt_prefix = bytes(ptxt_prefix, 'ascii')
-        key_prefix = xor(f.read(len(ptxt_prefix)), ptxt_prefix)
-        f.seek(0)
+        key_prefix = xor(ctxt[:len(ptxt_prefix)], ptxt_prefix)
 
     # Score possible Key Sizes
     if verbose:
         console.log("[bold green]Calculating Possible Key Lengths")
-    key_lens = detect_key_length(f, max_key_len=64, n=None, verbose=verbose)
+    key_lens = detect_key_length(ctxt, max_key_len=64, n=None, verbose=verbose)
     if verbose:    
         table = Table(title=f"Top 10 Most Probably Key Lengths")
         table.add_column("Key Length")
@@ -512,8 +512,7 @@ def xor_smash(f:IO, ptxt_prefix=None, verbose=False, console=None):
     # Greedy Search using the Known Plaintext as a seed state
     candidate_key = None
     if ptxt_prefix:
-        f.seek(0)
-        candidate_key, full_recovery = known_plaintext_prefix(f, ptxt_prefix, key_lens)
+        candidate_key, full_recovery = known_plaintext_prefix(ctxt, ptxt_prefix, key_lens)
         if full_recovery:
             full_key = candidate_key
             keep_going = Prompt.ask(f"Found Key \"{full_key}\", Continue Analysis? (y/n)", choices=['y', 'n'], default='y')
@@ -524,8 +523,7 @@ def xor_smash(f:IO, ptxt_prefix=None, verbose=False, console=None):
             print(f"Found Partial Keys: {candidate_key}")
     
     # Create a set of all possible bytearrays we think could be keys
-    f.seek(0)
-    ptxt_len = f_size(f)
+    ptxt_len = len(ctxt)
 
     candidate_keys = set()
     if isinstance(candidate_key, list):
@@ -546,29 +544,28 @@ def xor_smash(f:IO, ptxt_prefix=None, verbose=False, console=None):
     if verbose:
         console.log("[bold green]Looking for XOR key in Plaintext NULL bytes")
 
-    f.seek(0)
-    candidate_keys |= set(key_in_nulls(f, size=ptxt_len, verbose=verbose))
+    candidate_keys |= set(key_in_nulls(ctxt, size=ptxt_len, verbose=verbose))
     
     ##########################################
     # Try File Headers as Partial Plain Text #
     ##########################################
     if verbose:
         console.log("[bold green]Known Plaintext Attack w/ Known File Headers")
-    f.seek(0)
+
     headers = list()
     example_dir = os.path.join(data_dir(), "example_files")
     for filename in os.listdir(example_dir):
         filepath = os.path.join(example_dir, filename)
         with open(filepath, 'rb') as example_f:
             headers.append(example_f.read(2048))
-    candidate_keys |= set(file_header_key_extract(f, headers))
+    candidate_keys |= set(file_header_key_extract(ctxt, headers))
     
     ###################################
     # Language Frequency Based Attack #
     ###################################
     if verbose:
         console.log("[bold green]Statistical attack against English")
-    f.seek(0)
+
     with open(os.path.join(data_dir(), "english_stats.json"), 'r') as sf:
         byte_distro = json.load(sf)
         # Nuance with Loading a Dict with Int as Keys
@@ -576,7 +573,7 @@ def xor_smash(f:IO, ptxt_prefix=None, verbose=False, console=None):
             byte_distro[i] = byte_distro[str(i)]
             del byte_distro[str(i)]
         
-        candidate_keys |= set(known_plaintext_statistical_attack(f, byte_distro))
+        candidate_keys |= set(known_plaintext_statistical_attack(ctxt, byte_distro))
 
     ##########################################
     # Rank Keys Based on Candidate Key Sizes #

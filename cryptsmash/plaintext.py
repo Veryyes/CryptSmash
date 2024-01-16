@@ -161,7 +161,7 @@ class KeyScorer:
         return scores
 
 
-def fitness(key:Any, key_score:float, cipher_text:Union[str, bytes], decrypt:Callable):
+def  fitness(key:Any, key_score:float, cipher_text:Union[str, bytes], decrypt:Callable):
     plain_txt = decrypt(cipher_text, key)
     
     if key_score == 0:
