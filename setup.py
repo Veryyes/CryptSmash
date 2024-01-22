@@ -19,7 +19,7 @@ setup(
         'asciichartpy'
     ],
     extras_require = {
-        'dev': ['pytest']
+        'dev': ['pytest', 'maturin', 'faker', 'modin[ray]', 'ipywidgets']
     },
     entry_points = {
         'console_scripts': ['smash = cryptsmash.run:main']

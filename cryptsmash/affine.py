@@ -17,8 +17,11 @@ def encrypt(ptxt:str, key:Tuple[int, int], alphabet:Iterable=string.ascii_lowerc
     a, b = key
     cipher = list()
     for p in ptxt:
-        ordinal_value = alphabet.index(p)
-        cipher.append(alphabet[(a*ordinal_value+b)%len(alphabet)])
+        if p not in alphabet:
+            cipher.append(p)
+        else:
+            ordinal_value = alphabet.index(p)
+            cipher.append(alphabet[(a*ordinal_value+b)%len(alphabet)])
     return ''.join(cipher)
 
 def decrypt(ctxt:str, key:Tuple[int, int], alphabet:Iterable=string.ascii_lowercase):
@@ -33,6 +36,8 @@ def decrypt(ctxt:str, key:Tuple[int, int], alphabet:Iterable=string.ascii_lowerc
         if c in alphabet:
             ordinal = alphabet.index(c)
             plain.append(alphabet[(ordinal-b)*a_inv % len(alphabet)])
+        else:
+            plain.append(c)
     return ''.join(plain)
 
 def smash(ctxt:str, alphabet:Iterable=string.ascii_lowercase):

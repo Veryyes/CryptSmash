@@ -20,6 +20,7 @@ from cryptsmash import railfence as _railfence
 from cryptsmash import affine as _affine
 from cryptsmash import substitution as _substitution
 from cryptsmash import vigenere as _vigenere
+from cryptsmash.detect import identify
 
 app = typer.Typer()
 console = Console()
@@ -31,6 +32,21 @@ def input_file_checks(p:Path):
     if not p.is_file():
         print("[red]{p} is must be a file")
         return
+
+@app.command()
+def auto(
+    p:Annotated[Path, typer.Argument(help="File Path to the Encrypted File")]
+):
+    pass
+
+@app.command()
+def detect(
+    p:Annotated[Path, typer.Argument(help="File Path to the Encrypted File")]
+):
+    with open(p, 'rb') as f:
+        ctxt = f.read()
+
+    print(identify(ctxt))
 
 @app.command()
 def stats(

@@ -81,7 +81,7 @@ def inv_chi_squared(
 
     running_sum = 1.0
     for letter in alphabet:
-        if distrib[letter] == 0:
+        if distrib.get(letter, 0) == 0:
             running_sum += (math.pow(counts[letter] - (max_factor*length), 2) / (max_factor*length))
         else:
             running_sum += (math.pow(counts[letter] - (distrib[letter]*length), 2) / (distrib[letter]*length))
@@ -91,8 +91,7 @@ def inv_chi_squared(
 # http://practicalcryptography.com/cryptanalysis/text-characterisation/index-coincidence/
 @staticmethod
 def index_of_coincidence(
-    data:bytes, 
-    alphabet:Set[bytes]=set([int.to_bytes(x, length=1, byteorder='little') for x in range(256)])
+    data:bytes
 ) -> float:
     '''
     measure of how similar a frequency distribution is to the uniform distribution
