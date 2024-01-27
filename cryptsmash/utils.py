@@ -25,10 +25,25 @@ def f_size(f:IO):
     return size
 
        
-def byte_prob(f:IO):
-    data = f.read()
+def byte_prob(data:bytes):
     np_data = np.frombuffer(data, dtype=np.uint8)
     return np.bincount(np_data, minlength=256) / len(np_data)
+
+def ngram_prob(data:bytes, n:int=2):
+    counts = ngram_count(data, n)
+    
+    for k, v in counts.items():
+        counts[k] = v / len(data)
+
+    return counts
+
+def ngram_count(data:bytes, n:int=2):
+    counts = defaultdict(lambda: 0)
+    for i in range(len(data) - n):
+        counts[data[i:i+n]] += 1
+
+    return counts
+
 
 def alphabet_dist(alphabet:List, lang:Language, encoding='utf8') -> Dict[Union[str, bytes]: float]:
     alpha_dist = dict()

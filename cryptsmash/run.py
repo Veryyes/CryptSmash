@@ -57,20 +57,32 @@ def stats(
     input_file_checks(input)
         
     with console.status(f"Calculating Byte Distribution of {input}") as status:
-        freq_table = dict()
+        byte_distrib = dict()
         with open(input, 'rb') as f:
-            prob = byte_prob(f)
-            for i, value in enumerate(prob):
-                freq_table[i] = value
+            data = f.read()
+
+        prob = byte_prob(data)
+        for i, value in enumerate(prob):
+            byte_distrib[i] = value
+
+        # TODO serialization
+        bigrams = ngram_prob(data, 2)
+        for k in list(bigrams.keys()):
+            bigrams[str(k, 'latin1')] = bigrams[k]
+            del bigrams[k]
 
     if output is not None:
         with open(output, 'w') as f:
-            json.dump(freq_table, f)
+            json_data = {
+                'byte_distrib' : byte_distrib,
+                'bigrams': bigrams
+            }
+            json.dump(json_data, f)
 
         console.log(f"Written to {output}")
     
-    # Print Fancy freq_table
-    top_n = sorted(freq_table.items(), key=lambda i:i[1], reverse=True)[:n]
+    # Print Fancy byte_distrib
+    top_n = sorted(byte_distrib.items(), key=lambda i:i[1], reverse=True)[:n]
     table = Table(title=f"{n} Most Frequent Bytes")
     table.add_column("Int")
     table.add_column("Hex")

@@ -207,7 +207,8 @@ def is_known_file(data:bytes) -> Tuple[bool, str]:
 
 class Language:
     ENCODING = "UTF8"
-    byte_distro:Dict[int, float]
+    byte_distrib:Dict[int, float]
+    bigrams:Dict[bytes, float]
     quadgrams:Dict[bytes, int]
     quadgram_total:int = 1
     word_count:Dict[str, float]
@@ -218,12 +219,20 @@ class English(Language):
     ENCODING = "UTF8"
     
     # Byte Distribution
-    byte_distro = dict()
+    byte_distrib = dict()
     with open(os.path.join(data_dir(), "english_stats.json"), 'r') as f:
-        byte_distro = json.load(f)
+        json_data = json.load(f)
+
+    byte_distrib = json_data['byte_distrib']
+    bigrams = json_data['bigrams']
+    
     for i in range(256):
-        byte_distro[int.to_bytes(i, length=1, byteorder='little')] = byte_distro[str(i)]
-        del byte_distro[str(i)]
+        byte_distrib[int.to_bytes(i, length=1, byteorder='little')] = byte_distrib[str(i)]
+        del byte_distrib[str(i)]
+
+    for k in list(bigrams.keys()):
+        bigrams[bytes(k, 'latin1')] = bigrams[k]
+        del bigrams[k]
 
     # 4 UTF8 Grams Scores
     quadgrams = dict()

@@ -16,7 +16,8 @@ setup(
         'seaborn',
         'pandas',
         'python-magic',
-        'asciichartpy'
+        'asciichartpy',
+        'sklearn'
     ],
     extras_require = {
         'dev': ['pytest', 'maturin', 'faker', 'modin[ray]', 'ipywidgets']
