@@ -17,7 +17,8 @@ setup(
         'pandas',
         'python-magic',
         'asciichartpy',
-        'sklearn'
+        'sklearn',
+        'skops'
     ],
     extras_require = {
         'dev': ['pytest', 'maturin', 'faker', 'modin[ray]', 'ipywidgets']

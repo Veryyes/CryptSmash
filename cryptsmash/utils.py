@@ -23,7 +23,6 @@ def f_size(f:IO):
     f.seek(cur)
 
     return size
-
        
 def byte_prob(data:bytes):
     np_data = np.frombuffer(data, dtype=np.uint8)
@@ -43,7 +42,6 @@ def ngram_count(data:bytes, n:int=2):
         counts[data[i:i+n]] += 1
 
     return counts
-
 
 def alphabet_dist(alphabet:List, lang:Language, encoding='utf8') -> Dict[Union[str, bytes]: float]:
     alpha_dist = dict()
@@ -72,11 +70,19 @@ def frequency_table(
 
     return freq
 
+def has_printable(data:bytes):
+    printables = bytes(string.printable, 'ascii')
+    return all(c in printables for c in data)
+
+def has_non_printables(data:bytes):
+    printables = bytes(string.printable, 'ascii')
+    return any(c not in printables for c in data)
+
 #http://practicalcryptography.com/cryptanalysis/text-characterisation/chi-squared-statistic/
 def inv_chi_squared(
     counts:Dict[bytes, int], 
     distrib:Dict[bytes, float], 
-    length:str, 
+    length:int, 
     alphabet:Set[bytes]=set([int.to_bytes(x, length=1, byteorder='little') for x in range(256)])
 ) -> float:
     '''
