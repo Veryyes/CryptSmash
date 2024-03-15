@@ -5,18 +5,23 @@ from cryptsmash.utils import alphabet_dist, polyalpha_keylen
 
 
 def encrypt(ptxt, key, alphabet=string.ascii_lowercase):
+    alphabet = list(alphabet)
     ctxt = list()
     
     for i, p in enumerate(ptxt):
-        ordinal = alphabet.index(p)
-        ord_key = alphabet.index(key[i%len(key)])
-        ctxt.append(alphabet[(ordinal + ord_key) % len(alphabet)])
+        if p not in alphabet:
+            ctxt.append(p)
+        else:
+            ordinal = alphabet.index(p)
+            ord_key = alphabet.index(key[i%len(key)])
+            ctxt.append(alphabet[(ordinal + ord_key) % len(alphabet)])
 
     return "".join(ctxt)
 
 def decrypt(ctxt, key, alphabet=string.ascii_lowercase):
     ptxt = list()
     ctxt = [c for c in ctxt if c in alphabet]
+    alphabet = list(alphabet)
 
     for i, c in enumerate(ctxt):
         ordinal = alphabet.index(c)

@@ -20,6 +20,7 @@ from cryptsmash import railfence as _railfence
 from cryptsmash import affine as _affine
 from cryptsmash import substitution as _substitution
 from cryptsmash import vigenere as _vigenere
+from cryptsmash.detect import identify
 
 app = typer.Typer()
 console = Console()
@@ -33,6 +34,37 @@ def input_file_checks(p:Path):
         return
 
 @app.command()
+def auto(
+    p:Annotated[Path, typer.Argument(help="File Path to the Encrypted File")]
+):
+    with open(p, 'rb') as f:
+        ctxt = f.read()
+
+    info = identify(ctxt)
+    _type = info[0]
+    params = info[1:]
+
+    if _type == "Baconian":
+        pass
+    elif _type == "Polybus":
+        pass
+    elif _type == "XOR":
+        pass
+    elif _type == "Vigenere":
+        pass
+    elif _type == "Transposition/Monoalphabetic Subtitution":
+        pass
+
+@app.command()
+def detect(
+    p:Annotated[Path, typer.Argument(help="File Path to the Encrypted File")]
+):
+    with open(p, 'rb') as f:
+        ctxt = f.read()
+
+    print(identify(ctxt))
+
+@app.command()
 def stats(
     input:Annotated[Path, typer.Argument(help="File to Calculate the Byte Distribution of")], 
     n:Annotated[int, typer.Option("-n", help="Top N most frequent bytes")]=10,
@@ -41,20 +73,32 @@ def stats(
     input_file_checks(input)
         
     with console.status(f"Calculating Byte Distribution of {input}") as status:
-        freq_table = dict()
+        byte_distrib = dict()
         with open(input, 'rb') as f:
-            prob = byte_prob(f)
-            for i, value in enumerate(prob):
-                freq_table[i] = value
+            data = f.read()
+
+        prob = byte_prob(data)
+        for i, value in enumerate(prob):
+            byte_distrib[i] = value
+
+        # TODO serialization
+        bigrams = ngram_prob(data, 2)
+        for k in list(bigrams.keys()):
+            bigrams[str(k, 'latin1')] = bigrams[k]
+            del bigrams[k]
 
     if output is not None:
         with open(output, 'w') as f:
-            json.dump(freq_table, f)
+            json_data = {
+                'byte_distrib' : byte_distrib,
+                'bigrams': bigrams
+            }
+            json.dump(json_data, f)
 
         console.log(f"Written to {output}")
     
-    # Print Fancy freq_table
-    top_n = sorted(freq_table.items(), key=lambda i:i[1], reverse=True)[:n]
+    # Print Fancy byte_distrib
+    top_n = sorted(byte_distrib.items(), key=lambda i:i[1], reverse=True)[:n]
     table = Table(title=f"{n} Most Frequent Bytes")
     table.add_column("Int")
     table.add_column("Hex")

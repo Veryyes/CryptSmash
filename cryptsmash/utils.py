@@ -23,12 +23,30 @@ def f_size(f:IO):
     f.seek(cur)
 
     return size
-
        
-def byte_prob(f:IO):
-    data = f.read()
+def byte_prob(data:bytes):
     np_data = np.frombuffer(data, dtype=np.uint8)
-    return np.bincount(np_data, minlength=256) / len(np_data)
+    return np.bincount(np_data) / len(np_data)
+
+def entropy(data:bytes):
+    prob = byte_prob(data)
+    prob = prob[prob != 0]
+    return (-np.nansum(prob * np.log2(prob))) / 8
+
+def ngram_prob(data:bytes, n:int=2):
+    counts = ngram_count(data, n)
+    
+    for k, v in counts.items():
+        counts[k] = v / len(data)
+
+    return counts
+
+def ngram_count(data:bytes, n:int=2):
+    counts = defaultdict(lambda: 0)
+    for i in range(len(data) - n):
+        counts[data[i:i+n]] += 1
+
+    return counts
 
 def alphabet_dist(alphabet:List, lang:Language, encoding='utf8') -> Dict[Union[str, bytes]: float]:
     alpha_dist = dict()
@@ -57,11 +75,19 @@ def frequency_table(
 
     return freq
 
+def has_printable(data:bytes):
+    printables = bytes(string.printable, 'ascii')
+    return all(c in printables for c in data)
+
+def has_non_printables(data:bytes):
+    printables = bytes(string.printable, 'ascii')
+    return any(c not in printables for c in data)
+
 #http://practicalcryptography.com/cryptanalysis/text-characterisation/chi-squared-statistic/
 def inv_chi_squared(
     counts:Dict[bytes, int], 
     distrib:Dict[bytes, float], 
-    length:str, 
+    length:int, 
     alphabet:Set[bytes]=set([int.to_bytes(x, length=1, byteorder='little') for x in range(256)])
 ) -> float:
     '''
@@ -81,7 +107,7 @@ def inv_chi_squared(
 
     running_sum = 1.0
     for letter in alphabet:
-        if distrib[letter] == 0:
+        if distrib.get(letter, 0) == 0:
             running_sum += (math.pow(counts[letter] - (max_factor*length), 2) / (max_factor*length))
         else:
             running_sum += (math.pow(counts[letter] - (distrib[letter]*length), 2) / (distrib[letter]*length))
@@ -91,8 +117,7 @@ def inv_chi_squared(
 # http://practicalcryptography.com/cryptanalysis/text-characterisation/index-coincidence/
 @staticmethod
 def index_of_coincidence(
-    data:bytes, 
-    alphabet:Set[bytes]=set([int.to_bytes(x, length=1, byteorder='little') for x in range(256)])
+    data:bytes
 ) -> float:
     '''
     measure of how similar a frequency distribution is to the uniform distribution

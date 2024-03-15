@@ -16,10 +16,12 @@ setup(
         'seaborn',
         'pandas',
         'python-magic',
-        'asciichartpy'
+        'asciichartpy',
+        'sklearn',
+        'skops'
     ],
     extras_require = {
-        'dev': ['pytest']
+        'dev': ['pytest', 'maturin', 'faker', 'modin[ray]', 'ipywidgets', 'imbalanced-learn']
     },
     entry_points = {
         'console_scripts': ['smash = cryptsmash.run:main']

@@ -13,27 +13,6 @@ from rich import print
 from rich.table import Table
 
 from cryptsmash.utils import data_dir, inv_chi_squared, frequency_table
-#############################################
-# Attempt Decryption with all Keys and Rank #
-#############################################
-# All ASCII -> Good (But not Bad thing if it isnt)
-# Python Magic detects a non-data file -> Good
-# Language Score
-
-# def detect_decryption(decrypted_data:bytes, key):
-    # known_file, file_type = is_known_file(decrypted_data)
-    # if known_file:
-    #     return True
-# def decrypt_score(decrypted_data:bytes, key):
-#     score = 1
-
-#     # known_file, file_type = is_known_file(decrypted_data)
-#     # if known_file:
-#     #     score *= 
-    
-#     eng_fitness = quadgram_fitness(decrypted_data, English)
-#     eng_similiarity = chi_squared(frequency_table(decrypted_data))
-#     printable_percentage(decrypted_data)
 
 @dataclass
 class Score:
@@ -161,7 +140,7 @@ class KeyScorer:
         return scores
 
 
-def  fitness(key:Any, key_score:float, cipher_text:Union[str, bytes], decrypt:Callable):
+def fitness(key:Any, key_score:float, cipher_text:Union[str, bytes], decrypt:Callable):
     plain_txt = decrypt(cipher_text, key)
     
     if key_score == 0:
@@ -228,7 +207,8 @@ def is_known_file(data:bytes) -> Tuple[bool, str]:
 
 class Language:
     ENCODING = "UTF8"
-    byte_distro:Dict[int, float]
+    byte_distrib:Dict[int, float]
+    bigrams:Dict[bytes, float]
     quadgrams:Dict[bytes, int]
     quadgram_total:int = 1
     word_count:Dict[str, float]
@@ -239,12 +219,20 @@ class English(Language):
     ENCODING = "UTF8"
     
     # Byte Distribution
-    byte_distro = dict()
+    byte_distrib = dict()
     with open(os.path.join(data_dir(), "english_stats.json"), 'r') as f:
-        byte_distro = json.load(f)
+        json_data = json.load(f)
+
+    byte_distrib = json_data['byte_distrib']
+    bigrams = json_data['bigrams']
+    
     for i in range(256):
-        byte_distro[int.to_bytes(i, length=1, byteorder='little')] = byte_distro[str(i)]
-        del byte_distro[str(i)]
+        byte_distrib[int.to_bytes(i, length=1, byteorder='little')] = byte_distrib[str(i)]
+        del byte_distrib[str(i)]
+
+    for k in list(bigrams.keys()):
+        bigrams[bytes(k, 'latin1')] = bigrams[k]
+        del bigrams[k]
 
     # 4 UTF8 Grams Scores
     quadgrams = dict()

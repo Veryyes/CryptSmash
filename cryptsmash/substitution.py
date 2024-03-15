@@ -16,7 +16,7 @@ from cryptsmash.utils import frequency_table
 def encrypt(ptxt:Union[str, bytes], key:Dict[Union[str, bytes], Union[str, bytes]]):
     ctxt = list()
     for p in ptxt:
-        ctxt.append(key[p])
+        ctxt.append(key.get(p, p))
     
     if isinstance(list(key.values())[0], str):
         return "".join(ctxt)
