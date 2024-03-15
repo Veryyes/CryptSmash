@@ -37,7 +37,23 @@ def input_file_checks(p:Path):
 def auto(
     p:Annotated[Path, typer.Argument(help="File Path to the Encrypted File")]
 ):
-    pass
+    with open(p, 'rb') as f:
+        ctxt = f.read()
+
+    info = identify(ctxt)
+    _type = info[0]
+    params = info[1:]
+
+    if _type == "Baconian":
+        pass
+    elif _type == "Polybus":
+        pass
+    elif _type == "XOR":
+        pass
+    elif _type == "Vigenere":
+        pass
+    elif _type == "Transposition/Monoalphabetic Subtitution":
+        pass
 
 @app.command()
 def detect(

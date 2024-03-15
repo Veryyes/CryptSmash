@@ -49,10 +49,11 @@ def identify(ctxt:bytes):
     if len(non_zero_keys.keys()) == 3:
         smallest_cnt_byte = min([(k,v) for k,v in non_zero_keys.items()], key=lambda x:x[1])[0]
         if chr(smallest_cnt_byte) in COMMON_DELIMITERS:
-            return "Baconian"       
+            del non_zero_keys[smallest_cnt_byte]
+            return "Baconian"#, list(non_zero_keys.keys())
 
     if len(non_zero_keys.keys()) == 2:
-        return "Baconian"
+        return "Baconian"#, list(non_zero_keys.keys())
 
     if len(non_zero_keys) == 5 or len(non_zero_keys) == 6:
         return "Polybus"
