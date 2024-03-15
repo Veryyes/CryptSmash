@@ -3,7 +3,7 @@ import os
 import skops.io as sio
 import numpy as np
 
-from cryptsmash.utils import inv_chi_squared, frequency_table, index_of_coincidence, data_dir, has_non_printables
+from cryptsmash.utils import inv_chi_squared, frequency_table, index_of_coincidence, data_dir, has_non_printables, entropy
 from cryptsmash.plaintext import English
 
 #############################################
@@ -61,22 +61,23 @@ def identify(ctxt:bytes):
 
     chi_sq = inv_chi_squared(freq_table, English.byte_distrib, len(ctxt), [bytes(a,'utf8') for a  in ALPHABET])
     ioc = index_of_coincidence(ctxt)
+    e = entropy(ctxt)
 
-    feats = np.array([chi_sq, ioc])
-    feats = np.resize(feats, (1, 2))
+    feats = np.array([chi_sq, ioc, e])
+    feats = np.resize(feats, (1, 3))
 
     if has_non_printables(ctxt):
         return 'XOR'
 
     is_polyalphabetic = MONO_POLY_MODEL.predict(feats)[0] == 1
     if is_polyalphabetic:
-        is_vigenere = POLY_MODEL.predit(feats)[0] == 0
+        is_vigenere = POLY_MODEL.predict(feats)[0] == 0
         if is_vigenere:
             return "Vigenere"
         else:
             return "XOR"
     else:
-        "Transposition/Monoalphabetic Subtitution"
+        return "Transposition/Monoalphabetic Subtitution"
 
 ALPHABET = {'\n',
  ' ',

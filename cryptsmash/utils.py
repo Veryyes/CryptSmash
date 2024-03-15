@@ -26,10 +26,11 @@ def f_size(f:IO):
        
 def byte_prob(data:bytes):
     np_data = np.frombuffer(data, dtype=np.uint8)
-    return np.bincount(np_data, minlength=256) / len(np_data)
+    return np.bincount(np_data) / len(np_data)
 
 def entropy(data:bytes):
     prob = byte_prob(data)
+    prob = prob[prob != 0]
     return (-np.nansum(prob * np.log2(prob))) / 8
 
 def ngram_prob(data:bytes, n:int=2):
