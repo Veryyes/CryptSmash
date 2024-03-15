@@ -30,25 +30,27 @@ from cryptsmash.plaintext import English
 
 LARGE_CORPUS = 75
 
-
-
 MONO_POLY_MODEL = sio.load(os.path.join(data_dir(), "bin_svc_detect.skops"))
 MONO_POLY_LABELS = ['Transposition/Monoalphabetic Subtitution', 'Polyalphabetic Substitution']
 
 POLY_MODEL = sio.load(os.path.join(data_dir(), "poly_svc_detect.skops"))
 POLY_LABELS = ["Vigenere", "XOR"]
 
+COMMON_DELIMITERS = [" ", ",", "\n", "_", "."]
 
 def identify(ctxt:bytes):
     if len(ctxt) < LARGE_CORPUS:
         print(f"Small Ciphertext Size: {len(ctxt)}. Identification may not be accurate")
 
-    freq_table = frequency_table(ctxt)
+    freq_table = frequency_table(ctxt.strip())
     non_zero_keys = {k:freq_table[k] for k in freq_table.keys() if freq_table[k] > 0}
 
-    # Only Two Symbols Exist?
-    # TODO does not take into account delimiter 
-    # perhaps || with heurstic that looks for groupings of 5 and there are only 3 overll symbols (1 being delimiter and the other 2 being the actual symbols)
+    # Only Two Symbols Exist? Leave exception for a delimiter
+    if len(non_zero_keys.keys()) == 3:
+        smallest_cnt_byte = min([(k,v) for k,v in non_zero_keys.items()], key=lambda x:x[1])[0]
+        if chr(smallest_cnt_byte) in COMMON_DELIMITERS:
+            return "Baconian"       
+
     if len(non_zero_keys.keys()) == 2:
         return "Baconian"
 
