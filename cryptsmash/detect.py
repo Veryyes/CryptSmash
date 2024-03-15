@@ -29,14 +29,14 @@ from cryptsmash.plaintext import English
 #     printable_percentage(decrypted_data)
 
 LARGE_CORPUS = 75
-# DETECT_MODEL = sio.load(os.path.join(data_dir(), "svc_detect.skops"))
-LABELS = ['railfence', 'affine', 'substitution', 'vigenere', 'xor']
 
-MODEL_1 = sio.load(os.path.join(data_dir(), "bin_svc_detect.skops"))
-LABELS_1 = ['Transposition/Monoalphabetic Subtitution', 'Polyalphabetic Substitution']
-MODEL_2 = sio.load(os.path.join(data_dir(), "affine_svc_detect.skops"))
-LABELS_2 = ['Not Affine', 'Affine']
 
+
+MONO_POLY_MODEL = sio.load(os.path.join(data_dir(), "bin_svc_detect.skops"))
+MONO_POLY_LABELS = ['Transposition/Monoalphabetic Subtitution', 'Polyalphabetic Substitution']
+
+POLY_MODEL = sio.load(os.path.join(data_dir(), "poly_svc_detect.skops"))
+POLY_LABELS = ["Vigenere", "XOR"]
 
 
 def identify(ctxt:bytes):
@@ -68,17 +68,15 @@ def identify(ctxt:bytes):
     if has_non_printables(ctxt):
         return 'XOR'
 
-    is_polyalphabetic = MODEL_1.predict(feats)[0] == 1
+    is_polyalphabetic = MONO_POLY_MODEL.predict(feats)[0] == 1
     if is_polyalphabetic:
-        return 'Vigenere'
+        is_vigenere = POLY_MODEL.predit(feats)[0] == 0
+        if is_vigenere:
+            return "Vigenere"
+        else:
+            return "XOR"
     else:
-        is_affine = MODEL_2.predict(feats)[0] == 1
-
-        # this model has a 30% chance of predicting its not affine, when it actually is
-        if not is_affine:
-            return "Transposition, Monoalphabetic Substitution, or Affine"
-        
-        return "Affine"
+        "Transposition/Monoalphabetic Subtitution"
 
 ALPHABET = {'\n',
  ' ',

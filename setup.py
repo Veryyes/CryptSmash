@@ -21,7 +21,7 @@ setup(
         'skops'
     ],
     extras_require = {
-        'dev': ['pytest', 'maturin', 'faker', 'modin[ray]', 'ipywidgets']
+        'dev': ['pytest', 'maturin', 'faker', 'modin[ray]', 'ipywidgets', 'imbalanced-learn']
     },
     entry_points = {
         'console_scripts': ['smash = cryptsmash.run:main']
