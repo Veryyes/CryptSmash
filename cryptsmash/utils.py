@@ -13,6 +13,7 @@ import string
 import numpy as np
 from rich import progress
 
+
 def data_dir():
     return os.path.join(os.path.dirname(pkgutil.get_loader('cryptsmash').path), 'data')
 
@@ -48,7 +49,7 @@ def ngram_count(data:bytes, n:int=2):
 
     return counts
 
-def alphabet_dist(alphabet:List, lang:Language, encoding='utf8') -> Dict[Union[str, bytes]: float]:
+def alphabet_dist(alphabet:List, lang:'Language', encoding='utf8') -> Dict[Union[str, bytes]: float]:
     alpha_dist = dict()
 
     is_bytes = isinstance(alphabet[0], bytes)
@@ -59,7 +60,7 @@ def alphabet_dist(alphabet:List, lang:Language, encoding='utf8') -> Dict[Union[s
         else:
             _a = a
 
-        alpha_dist[a] = lang.byte_distro[_a]
+        alpha_dist[a] = lang.byte_distrib[_a]
 
     return alpha_dist
 

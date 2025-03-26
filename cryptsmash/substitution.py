@@ -93,7 +93,7 @@ def smash(ctxt:Union[str, bytes], alphabet=string.ascii_lowercase, crib:Dict[str
 
         symbols = sorted([(sym,count) for sym, count in f_table.items()], key=lambda x:x[1])
         
-        # Cast the alphabet and crib to bytes because presumed_lang.byte_distro has bytes
+        # Cast the alphabet and crib to bytes because presumed_lang.byte_distrib has bytes
         tmp_crib = {}
         if type(alphabet[0]) == str:
             tmp_alphabet = bytes(alphabet, 'utf8')
@@ -105,7 +105,7 @@ def smash(ctxt:Union[str, bytes], alphabet=string.ascii_lowercase, crib:Dict[str
             tmp_alphabet = alphabet
 
         targets = list()
-        for sym, prob in presumed_lang.byte_distro.items():
+        for sym, prob in presumed_lang.byte_distrib.items():
             if sym in tmp_alphabet and sym not in tmp_crib.values():
                 # Cast back to string if cipher text is string type
                 if type(ctxt[0]) == str:

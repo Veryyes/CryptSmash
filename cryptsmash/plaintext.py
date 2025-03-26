@@ -155,7 +155,7 @@ def fitness(key:Any, key_score:float, cipher_text:Union[str, bytes], decrypt:Cal
         score *= .005
     
     eng_fitness = quadgram_fitness(plain_txt.upper(), English)
-    eng_similiarity = inv_chi_squared(frequency_table(plain_txt), English.byte_distro, len(plain_txt))    
+    eng_similiarity = inv_chi_squared(frequency_table(plain_txt), English.byte_distrib, len(plain_txt))    
     eng_word_score = keyword_score(plain_txt, English.word_count)    
 
     printable_percent = printable_percentage(plain_txt)

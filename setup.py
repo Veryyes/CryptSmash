@@ -17,7 +17,7 @@ setup(
         'pandas',
         'python-magic',
         'asciichartpy',
-        'sklearn',
+        'scikit-learn',
         'skops'
     ],
     extras_require = {

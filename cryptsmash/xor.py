@@ -331,7 +331,6 @@ def _stat_attack_helper(
 ):
     total = len(data) + key_length + key_length*256*256
     cur = 0
-
     frequencies = np.zeros((key_length, 256))
     sum_sqrs = np.sum(np.square(list(byte_distro.values())))
 
@@ -412,7 +411,7 @@ def known_plaintext_statistical_attack(
         ((ctxt, key_len, byte_distro) for key_len in range(min_key_len, max_key_len)), 
         total=max_key_len-min_key_len,
         job_title="Statistical Vigenere-style Attack",
-        disabled=not verbose
+        disabled=not verbose,
     ):
         
         keys.append(key)
@@ -567,7 +566,10 @@ def smash(ctxt:bytes, ptxt_prefix=None, verbose=False, console=None):
         console.log("[bold green]Statistical attack against English")
 
     with open(os.path.join(data_dir(), "english_stats.json"), 'r') as sf:
-        byte_distro = json.load(sf)
+        lang_data = json.load(sf)
+        if "byte_distrib" not in lang_data:
+            raise ValueError("Expecting a \'byte_distrib\' -> Dict[str, float] mapping lang_data") 
+        byte_distro = lang_data["byte_distrib"]
         # Nuance with Loading a Dict with Int as Keys
         for i in range(256):
             byte_distro[i] = byte_distro[str(i)]
